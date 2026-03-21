@@ -472,7 +472,10 @@ const MD = {
     // Horizontal rules
     html = html.replace(/^---$/gm, '<hr>');
     // Links
-    html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+    html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, text, url) => {
+      const safeUrl = /^https?:\/\//i.test(url) ? url : '#';
+      return '<a href="' + safeUrl + '" target="_blank" rel="noopener">' + text + '</a>';
+    });
     // Unordered lists
     html = html.replace(/^(\s*)[-*] (.+)$/gm, '$1<li>$2</li>');
     html = html.replace(/((?:<li>.*<\/li>\n?)+)/g, '<ul>$1</ul>');
@@ -523,10 +526,12 @@ const ZIP = {
     const centralHeaders = [];
     // Build local file headers + data
     const parts = [];
+    let fileCount = 0;
     for (const file of files) {
       // Sanitize filename: reject path traversal sequences
       const safeName = file.name.replace(/\.\.\//g, '').replace(/\.\.\\/g, '').replace(/^\/+/, '');
       if (!safeName || safeName.includes('..')) continue;
+      fileCount++;
       const nameBytes = enc.encode(safeName);
       const data = file.data;
       const crc = this.crc32(data);
@@ -579,8 +584,8 @@ const ZIP = {
     ev.setUint32(0, 0x06054b50, true);
     ev.setUint16(4, 0, true);
     ev.setUint16(6, 0, true);
-    ev.setUint16(8, files.length, true);
-    ev.setUint16(10, files.length, true);
+    ev.setUint16(8, fileCount, true);
+    ev.setUint16(10, fileCount, true);
     ev.setUint32(12, centralSize, true);
     ev.setUint32(16, centralStart, true);
     ev.setUint16(20, 0, true);
@@ -970,7 +975,7 @@ async function loadHistory(skill) {
     const histDir = await sfDir.getDirectoryHandle('history', { create: false });
     const fh = await histDir.getFileHandle(skill.dirName + '.jsonl');
     const text = await (await fh.getFile()).text();
-    return text.trim().split('\n').filter(Boolean).map(l => JSON.parse(l)).reverse();
+    return text.trim().split('\n').filter(Boolean).map(l => { try { return JSON.parse(l); } catch(e) { return null; } }).filter(Boolean).reverse();
   } catch (e) { return []; }
 }
 
@@ -1004,7 +1009,7 @@ function exportAllZip() {
 
 function downloadBlob(blob, name) {
   const url = URL.createObjectURL(blob);
-  const a = el('a', { href: url, download: name });
+  const a = el('a', { href: url, download: name, style: { display: 'none' } });
   document.body.appendChild(a);
   a.click();
   a.remove();
@@ -1023,7 +1028,11 @@ async function importFromUrl() {
     const content = await resp.text();
     const { frontmatter } = parseFrontmatter(content);
     const name = frontmatter.name || 'imported-skill';
-    await createSkill(slugify(name), content);
+    const slug = slugify(name);
+    if (State.skills.some(s => s.dirName === slug)) {
+      if (!confirm('A skill named "' + slug + '" already exists. Overwrite?')) return;
+    }
+    await createSkill(slug, content);
     render();
   } catch (e) {
     toast('Import failed: ' + e.message, 'error');
@@ -1510,10 +1519,7 @@ function renderPanel() {
   // Remove existing
   $$('.panel-overlay, .slide-panel').forEach(el => el.remove());
 
-  const panelEscHandler = (e) => { if (e.key === 'Escape') closePanel(); };
-  document.addEventListener('keydown', panelEscHandler);
   const overlay = el('div', { className: 'panel-overlay open', onClick: closePanel });
-  overlay._escHandler = panelEscHandler;
   document.body.appendChild(overlay);
 
   const panel = el('div', { className: 'slide-panel open', role: 'dialog', 'aria-label': 'Skill details: ' + (skill.frontmatter.name || skill.dirName) });
@@ -1597,10 +1603,6 @@ function renderPanel() {
 }
 
 function closePanel() {
-  const overlay = $('.panel-overlay');
-  if (overlay && overlay._escHandler) {
-    document.removeEventListener('keydown', overlay._escHandler);
-  }
   $$('.panel-overlay, .slide-panel').forEach(el => el.remove());
   State.currentSkill = null;
 }
@@ -1795,6 +1797,9 @@ function renderWizardStep1() {
   TEMPLATES.forEach(t => {
     const card = el('div', {
       className: `template-card${State.wizardData.templateId === t.id ? ' selected' : ''}`,
+      tabindex: '0',
+      role: 'button',
+      'aria-label': t.name + ': ' + t.desc,
       onClick: () => {
         State.wizardData.templateId = t.id;
         const { frontmatter, body } = parseFrontmatter(t.content);
@@ -1806,6 +1811,7 @@ function renderWizardStep1() {
         if (!State.wizardData.description) State.wizardData.description = frontmatter.description || '';
         renderContent();
       },
+      onKeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); card.click(); } },
     });
     card.innerHTML = `<div class="template-icon">${t.icon}</div><h4>${t.name}</h4><p>${t.desc}</p>`;
     grid.appendChild(card);
@@ -2155,7 +2161,7 @@ function renderCollections() {
       col.skills.forEach((sName, si) => {
         const tag = el('span', { className: 'collection-tag' });
         tag.textContent = sName;
-        const removeSpan = el('span', { className: 'remove', textContent: '×', onClick: async (e) => {
+        const removeSpan = el('span', { className: 'remove', textContent: '×', role: 'button', 'aria-label': 'Remove ' + sName + ' from collection', onClick: async (e) => {
           e.stopPropagation();
           col.skills.splice(si, 1);
           await saveCollections();
@@ -2267,7 +2273,7 @@ document.addEventListener('keydown', (e) => {
     if (input) input.focus();
   }
   // Ctrl+N → new skill
-  if ((e.ctrlKey || e.metaKey) && e.key === 'n') {
+  if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'N') {
     e.preventDefault();
     State.view = 'wizard'; State.wizardStep = 0; State.wizardData = {};
     render();
