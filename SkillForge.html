@@ -605,7 +605,7 @@ const State = {
   skills: [],
   selectedSkills: new Set(),
   currentSkill: null,
-  view: 'welcome', // welcome, dashboard, wizard, editor, settings, collections, sync, marketplace
+  view: 'welcome', // welcome, dashboard, wizard, editor, settings, collections, sync, mcp, marketplace
   wizardStep: 0,
   wizardData: {},
   theme: localStorage.getItem('sf-theme') || 'system',
@@ -808,7 +808,14 @@ function scoreSkill(skill) {
   // Progressive Disclosure (0-100)
   let pd = 50;
   if (fm.description && fm.description.length > 20 && fm.description.length < 200) pd += 20;
-  if (skill.files && skill.files.length > 1) pd += 20;
+  if (skill.files && skill.files.length > 1) pd += 10;
+  // Bonus for organized subdirectories (scripts/, references/, assets/)
+  if (skill.files) {
+    const hasDirs = skill.files.filter(f => f.kind === 'directory' && ['scripts', 'references', 'assets'].includes(f.name));
+    if (hasDirs.length >= 1) pd += 10;
+    if (hasDirs.length >= 2) pd += 10;
+    if (hasDirs.length >= 3) pd += 5;
+  }
   if (tokens < 3000) pd += 10;
   scores.progressiveDisclosure = Math.min(100, pd);
 
@@ -1183,6 +1190,7 @@ function render() {
       case 'settings': content.appendChild(renderSettings()); break;
       case 'collections': content.appendChild(renderCollections()); break;
       case 'sync': content.appendChild(renderSync()); break;
+      case 'mcp': content.appendChild(renderMcp()); break;
       case 'marketplace': content.appendChild(renderMarketplace()); break;
     }
     main.appendChild(content);
@@ -1237,6 +1245,7 @@ function renderSidebar() {
     { id: 'collections', icon: 'layers', label: 'Collections' },
     { id: 'sync', icon: 'refresh', label: 'Cross-Agent Sync' },
     { id: 'marketplace', icon: 'globe', label: 'Marketplace' },
+    { id: 'mcp', icon: 'zap', label: 'MCP Server' },
     { id: 'settings', icon: 'settings', label: 'Settings' },
   ];
   items.forEach(item => {
@@ -1315,6 +1324,7 @@ function renderContent() {
     case 'settings': content.appendChild(renderSettings()); break;
     case 'collections': content.appendChild(renderCollections()); break;
     case 'sync': content.appendChild(renderSync()); break;
+    case 'mcp': content.appendChild(renderMcp()); break;
     case 'marketplace': content.appendChild(renderMarketplace()); break;
   }
 }
@@ -1491,6 +1501,16 @@ function renderSkillCard(skill) {
     meta.appendChild(el('span', { textContent: timeAgo(skill.lastModified) }));
   }
 
+  // Supporting files badge
+  if (skill.files && skill.files.some(f => f.kind === 'directory' && ['scripts', 'references', 'assets'].includes(f.name))) {
+    const sfBadge = el('span', {
+      style: { fontSize: '10px', fontWeight: '600', padding: '1px 6px', borderRadius: '3px', textTransform: 'uppercase', letterSpacing: '.5px', background: 'var(--accent-light)', color: 'var(--accent)' },
+      title: 'Has supporting files (scripts, references, or assets)',
+    });
+    sfBadge.innerHTML = icon('folder', 10) + ' Files';
+    meta.appendChild(sfBadge);
+  }
+
   // Agent badges
   const badges = el('span', { className: 'agent-badges' });
   AGENTS.forEach(agent => {
@@ -1558,14 +1578,7 @@ function renderPanel() {
       body.appendChild(pre);
       break;
     case 'files':
-      skill.files.forEach(f => {
-        const item = el('div', { style: { padding: '8px 0', borderBottom: '1px solid var(--border)', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '8px' } });
-        const fileIcon = el('span', { innerHTML: f.kind === 'directory' ? icon('folder', 14) : icon('edit', 14) });
-        item.appendChild(fileIcon);
-        item.appendChild(document.createTextNode(' ' + f.name));
-        body.appendChild(item);
-      });
-      if (skill.files.length === 0) body.textContent = 'No files found.';
+      body.appendChild(renderFilesPanel(skill));
       break;
     case 'quality':
       body.appendChild(renderQualityPanel(skill));
@@ -1605,6 +1618,279 @@ function renderPanel() {
 function closePanel() {
   $$('.panel-overlay, .slide-panel').forEach(el => el.remove());
   State.currentSkill = null;
+}
+
+// ─── Supporting Files Helpers ─────────────────────────────────────
+const SUBDIRS = ['scripts', 'references', 'assets'];
+
+function categorizeFiles(files) {
+  const groups = { scripts: [], references: [], assets: [], other: [] };
+  files.forEach(f => {
+    if (f.name === 'SKILL.md') return;
+    if (f.kind === 'directory' && SUBDIRS.includes(f.name)) return;
+    let placed = false;
+    // Check if file path starts with a known subdir (from deep scan)
+    if (f.subdir && groups[f.subdir]) { groups[f.subdir].push(f); placed = true; }
+    if (!placed) groups.other.push(f);
+  });
+  return groups;
+}
+
+function getSupportingFileCount(skill) {
+  if (!skill.files) return 0;
+  let count = 0;
+  skill.files.forEach(f => {
+    if (f.kind === 'directory' && SUBDIRS.includes(f.name)) count++;
+    if (f.subdir && SUBDIRS.includes(f.subdir)) count++;
+  });
+  return count;
+}
+
+function hasSupportingFiles(skill) {
+  if (!skill.files) return false;
+  return skill.files.some(f =>
+    (f.kind === 'directory' && SUBDIRS.includes(f.name)) ||
+    (f.subdir && SUBDIRS.includes(f.subdir))
+  );
+}
+
+async function scanSubdirectories(skill) {
+  const result = [];
+  for (const subdir of SUBDIRS) {
+    try {
+      const dirHandle = await skill.dirHandle.getDirectoryHandle(subdir, { create: false });
+      for await (const entry of dirHandle.values()) {
+        if (entry.kind === 'file') {
+          try {
+            const file = await entry.getFile();
+            result.push({ name: entry.name, kind: 'file', subdir, size: file.size });
+          } catch (e) {
+            result.push({ name: entry.name, kind: 'file', subdir });
+          }
+        }
+      }
+    } catch (e) { /* subdir doesn't exist */ }
+  }
+  return result;
+}
+
+async function readSupportingFile(skill, subdir, filename) {
+  try {
+    const dirHandle = await skill.dirHandle.getDirectoryHandle(subdir, { create: false });
+    const fileHandle = await dirHandle.getFileHandle(filename);
+    const file = await fileHandle.getFile();
+    return await file.text();
+  } catch (e) { return null; }
+}
+
+async function writeSupportingFile(skill, subdir, filename, content) {
+  try {
+    const dirHandle = await skill.dirHandle.getDirectoryHandle(subdir, { create: true });
+    const fileHandle = await dirHandle.getFileHandle(filename, { create: true });
+    const writable = await fileHandle.createWritable();
+    await writable.write(content);
+    await writable.close();
+    toast('File saved: ' + subdir + '/' + filename);
+    return true;
+  } catch (e) { toast('Failed to save file: ' + e.message, 'error'); return false; }
+}
+
+async function deleteSupportingFile(skill, subdir, filename) {
+  try {
+    const dirHandle = await skill.dirHandle.getDirectoryHandle(subdir, { create: false });
+    await dirHandle.removeEntry(filename);
+    toast('Deleted: ' + subdir + '/' + filename);
+    return true;
+  } catch (e) { toast('Delete failed: ' + e.message, 'error'); return false; }
+}
+
+function formatFileSize(bytes) {
+  if (bytes == null) return '';
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / 1048576).toFixed(1) + ' MB';
+}
+
+function renderFilesPanel(skill) {
+  const wrap = el('div');
+
+  // Total count badge
+  const totalFiles = skill.files.filter(f => f.name !== 'SKILL.md').length;
+  const headerRow = el('div', { style: { display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' } });
+  headerRow.appendChild(el('h3', { textContent: 'Skill Files', style: { fontSize: '16px', flex: '1' } }));
+  headerRow.appendChild(el('span', { className: 'nav-badge', textContent: String(totalFiles), title: totalFiles + ' files' }));
+  wrap.appendChild(headerRow);
+
+  // SKILL.md entry
+  const skillMdItem = el('div', { style: { padding: '10px 12px', border: '1px solid var(--border)', borderRadius: 'var(--radius)', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px' } });
+  skillMdItem.innerHTML = icon('edit', 14);
+  skillMdItem.appendChild(el('span', { textContent: ' SKILL.md', style: { fontWeight: '600', flex: '1' } }));
+  skillMdItem.appendChild(el('span', { textContent: 'Primary skill file', style: { fontSize: '12px', color: 'var(--text-muted)' } }));
+  wrap.appendChild(skillMdItem);
+
+  // Subdirectory groups
+  SUBDIRS.forEach(subdir => {
+    const section = el('div', { style: { marginBottom: '16px' } });
+    const sectionHeader = el('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' } });
+    sectionHeader.innerHTML = icon('folder', 14);
+    sectionHeader.appendChild(el('span', { textContent: ' ' + subdir + '/', style: { fontWeight: '600', fontSize: '14px', flex: '1' } }));
+
+    // Create file button
+    const createBtn = el('button', { className: 'btn btn-ghost btn-sm', title: 'New file in ' + subdir, 'aria-label': 'Create new file in ' + subdir,
+      onClick: () => {
+        showCreateFileForm(skill, subdir, wrap);
+      }
+    });
+    createBtn.innerHTML = icon('plus', 14);
+    sectionHeader.appendChild(createBtn);
+    section.appendChild(sectionHeader);
+
+    // Scan and display files in this subdir
+    const filesContainer = el('div', { className: 'files-list-' + subdir });
+    filesContainer.appendChild(el('span', { textContent: 'Loading...', style: { fontSize: '12px', color: 'var(--text-muted)' } }));
+    section.appendChild(filesContainer);
+
+    // Async scan
+    (async () => {
+      try {
+        const dirHandle = await skill.dirHandle.getDirectoryHandle(subdir, { create: false });
+        const files = [];
+        for await (const entry of dirHandle.values()) {
+          if (entry.kind === 'file') {
+            try { const f = await entry.getFile(); files.push({ name: entry.name, size: f.size }); }
+            catch (e) { files.push({ name: entry.name }); }
+          }
+        }
+        filesContainer.innerHTML = '';
+        if (files.length === 0) {
+          filesContainer.appendChild(el('span', { textContent: 'Empty directory', style: { fontSize: '12px', color: 'var(--text-muted)', paddingLeft: '26px' } }));
+        } else {
+          files.sort((a, b) => a.name.localeCompare(b.name));
+          files.forEach(f => {
+            const item = el('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 12px 6px 26px', borderBottom: '1px solid var(--border)', fontSize: '13px' } });
+            item.appendChild(el('span', { textContent: f.name, style: { flex: '1', fontFamily: 'var(--mono)', fontSize: '12px' } }));
+            if (f.size != null) item.appendChild(el('span', { textContent: formatFileSize(f.size), style: { fontSize: '11px', color: 'var(--text-muted)' } }));
+            // View button
+            const viewBtn = el('button', { className: 'btn btn-ghost btn-sm', title: 'View file', 'aria-label': 'View ' + f.name,
+              onClick: async (e) => { e.stopPropagation(); await showFileViewer(skill, subdir, f.name, wrap); }
+            });
+            viewBtn.innerHTML = icon('edit', 12);
+            item.appendChild(viewBtn);
+            // Delete button
+            const delBtn = el('button', { className: 'btn btn-ghost btn-sm', title: 'Delete file', 'aria-label': 'Delete ' + f.name,
+              onClick: async (e) => {
+                e.stopPropagation();
+                if (!confirm('Delete ' + subdir + '/' + f.name + '?')) return;
+                if (await deleteSupportingFile(skill, subdir, f.name)) { renderPanel(); }
+              }
+            });
+            delBtn.innerHTML = icon('trash', 12);
+            item.appendChild(delBtn);
+            filesContainer.appendChild(item);
+          });
+        }
+      } catch (e) {
+        filesContainer.innerHTML = '';
+        const createDirBtn = el('button', { className: 'btn btn-ghost btn-sm', style: { fontSize: '12px' },
+          onClick: async () => {
+            try {
+              await skill.dirHandle.getDirectoryHandle(subdir, { create: true });
+              toast('Created ' + subdir + '/ directory');
+              renderPanel();
+            } catch (err) { toast('Failed to create directory: ' + err.message, 'error'); }
+          }
+        });
+        createDirBtn.innerHTML = icon('folder', 12) + ' Create ' + subdir + '/ folder';
+        filesContainer.appendChild(createDirBtn);
+      }
+    })();
+
+    wrap.appendChild(section);
+  });
+
+  // Other files
+  const otherFiles = skill.files.filter(f => f.name !== 'SKILL.md' && !(f.kind === 'directory' && SUBDIRS.includes(f.name)));
+  if (otherFiles.length > 0) {
+    const section = el('div', { style: { marginBottom: '16px' } });
+    section.appendChild(el('div', { textContent: 'Other Files', style: { fontWeight: '600', fontSize: '14px', marginBottom: '8px' } }));
+    otherFiles.forEach(f => {
+      const item = el('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 12px', borderBottom: '1px solid var(--border)', fontSize: '13px' } });
+      item.innerHTML = f.kind === 'directory' ? icon('folder', 14) : icon('edit', 14);
+      item.appendChild(el('span', { textContent: ' ' + f.name, style: { flex: '1' } }));
+      section.appendChild(item);
+    });
+    wrap.appendChild(section);
+  }
+
+  return wrap;
+}
+
+function showCreateFileForm(skill, subdir, container) {
+  // Remove any existing create form
+  const existing = container.querySelector('.create-file-form');
+  if (existing) existing.remove();
+
+  const form = el('div', { className: 'create-file-form', style: { border: '1px solid var(--accent)', borderRadius: 'var(--radius)', padding: '16px', marginBottom: '16px', background: 'var(--bg-alt)' } });
+  form.appendChild(el('h4', { textContent: 'New file in ' + subdir + '/', style: { fontSize: '14px', marginBottom: '8px' } }));
+
+  const nameInput = el('input', { className: 'form-input', type: 'text', placeholder: 'filename.md', style: { marginBottom: '8px' }, 'aria-label': 'New file name' });
+  form.appendChild(nameInput);
+
+  const contentArea = el('textarea', { className: 'form-textarea', placeholder: 'File contents...', style: { minHeight: '100px', fontFamily: 'var(--mono)', fontSize: '13px', marginBottom: '8px' }, 'aria-label': 'New file content' });
+  form.appendChild(contentArea);
+
+  const btnRow = el('div', { style: { display: 'flex', gap: '8px' } });
+  const saveBtn = el('button', { className: 'btn btn-primary btn-sm', textContent: 'Create File',
+    onClick: async () => {
+      const name = nameInput.value.trim();
+      if (!name) { toast('Enter a filename', 'error'); return; }
+      if (/[/\\]|\.\./.test(name)) { toast('Invalid filename', 'error'); return; }
+      if (await writeSupportingFile(skill, subdir, name, contentArea.value)) {
+        await loadSkills();
+        const updated = State.skills.find(s => s.dirName === skill.dirName);
+        if (updated) State.currentSkill = updated;
+        renderPanel();
+      }
+    }
+  });
+  const cancelBtn = el('button', { className: 'btn btn-ghost btn-sm', textContent: 'Cancel', onClick: () => form.remove() });
+  btnRow.append(saveBtn, cancelBtn);
+  form.appendChild(btnRow);
+
+  // Insert at top of body
+  container.prepend(form);
+  nameInput.focus();
+}
+
+async function showFileViewer(skill, subdir, filename, container) {
+  const content = await readSupportingFile(skill, subdir, filename);
+  if (content === null) { toast('Could not read file', 'error'); return; }
+
+  // Remove existing viewer
+  const existing = container.querySelector('.file-viewer');
+  if (existing) existing.remove();
+
+  const viewer = el('div', { className: 'file-viewer', style: { border: '1px solid var(--accent)', borderRadius: 'var(--radius)', padding: '16px', marginBottom: '16px', background: 'var(--bg-alt)' } });
+  const headerRow = el('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' } });
+  headerRow.appendChild(el('h4', { textContent: subdir + '/' + filename, style: { fontSize: '14px', flex: '1', fontFamily: 'var(--mono)' } }));
+  const closeBtn = el('button', { className: 'btn btn-ghost btn-sm', 'aria-label': 'Close viewer', onClick: () => viewer.remove() });
+  closeBtn.innerHTML = icon('x', 14);
+  headerRow.appendChild(closeBtn);
+  viewer.appendChild(headerRow);
+
+  const textarea = el('textarea', { className: 'form-textarea', value: content, style: { minHeight: '200px', fontFamily: 'var(--mono)', fontSize: '13px', marginBottom: '8px' }, 'aria-label': 'File content editor for ' + filename });
+  viewer.appendChild(textarea);
+
+  const saveBtn = el('button', { className: 'btn btn-primary btn-sm', textContent: 'Save Changes',
+    onClick: async () => {
+      if (await writeSupportingFile(skill, subdir, filename, textarea.value)) {
+        viewer.remove();
+      }
+    }
+  });
+  viewer.appendChild(saveBtn);
+
+  container.prepend(viewer);
 }
 
 function renderQualityPanel(skill) {
@@ -1992,12 +2278,6 @@ function renderEditor() {
         saveBtn.click();
       }
     },
-    onBlur: async () => {
-      if (State.editorDirty) {
-        await saveSkillContent(skill, textarea.value);
-        updateEditorStatus(wrap);
-      }
-    }
   });
   leftPane.appendChild(textarea);
   container.appendChild(leftPane);
@@ -2015,6 +2295,116 @@ function renderEditor() {
   container.appendChild(rightPane);
 
   wrap.appendChild(container);
+
+  // Supporting Files section (collapsible)
+  const sfPanel = el('div', { style: { borderTop: '1px solid var(--border)', background: 'var(--bg-alt)' } });
+  const sfToggle = el('button', { className: 'btn btn-ghost', style: { width: '100%', justifyContent: 'flex-start', padding: '8px 12px', fontSize: '13px', fontWeight: '600', borderRadius: '0' },
+    'aria-expanded': 'false', 'aria-label': 'Toggle supporting files panel',
+    onClick: () => {
+      const content = sfPanel.querySelector('.sf-panel-content');
+      const expanded = content.style.display !== 'none';
+      content.style.display = expanded ? 'none' : 'block';
+      sfToggle.setAttribute('aria-expanded', String(!expanded));
+      sfToggle.querySelector('.sf-chevron').style.transform = expanded ? 'rotate(0deg)' : 'rotate(90deg)';
+    }
+  });
+  sfToggle.innerHTML = `<span class="sf-chevron" style="display:inline-flex;transition:transform .2s">${icon('chevronRight', 14)}</span> Supporting Files (scripts/, references/, assets/)`;
+  sfPanel.appendChild(sfToggle);
+
+  const sfContent = el('div', { className: 'sf-panel-content', style: { display: 'none', padding: '12px 16px', maxHeight: '250px', overflowY: 'auto' } });
+
+  // Quick action buttons
+  const quickActions = el('div', { style: { display: 'flex', gap: '8px', marginBottom: '12px', flexWrap: 'wrap' } });
+  const makeQuickBtn = (label, subdir) => {
+    const btn = el('button', { className: 'btn btn-secondary btn-sm', 'aria-label': 'Create new file in ' + subdir,
+      onClick: () => {
+        const filename = prompt('Filename for ' + subdir + '/:');
+        if (!filename || !filename.trim()) return;
+        if (/[/\\]|\.\./.test(filename)) { toast('Invalid filename', 'error'); return; }
+        const editorArea = el('div', { style: { border: '1px solid var(--accent)', borderRadius: 'var(--radius)', padding: '12px', marginTop: '8px', background: 'var(--bg)' } });
+        editorArea.appendChild(el('div', { textContent: subdir + '/' + filename.trim(), style: { fontFamily: 'var(--mono)', fontSize: '12px', marginBottom: '6px', fontWeight: '600' } }));
+        const ta = el('textarea', { className: 'form-textarea', style: { minHeight: '100px', fontFamily: 'var(--mono)', fontSize: '12px' }, placeholder: 'File contents...', 'aria-label': 'Content for ' + filename });
+        editorArea.appendChild(ta);
+        const row = el('div', { style: { display: 'flex', gap: '8px', marginTop: '8px' } });
+        row.appendChild(el('button', { className: 'btn btn-primary btn-sm', textContent: 'Save',
+          onClick: async () => {
+            if (await writeSupportingFile(skill, subdir, filename.trim(), ta.value)) {
+              editorArea.remove();
+              await loadSkills();
+              const updated = State.skills.find(s => s.dirName === skill.dirName);
+              if (updated) { State.currentSkill = updated; }
+            }
+          }
+        }));
+        row.appendChild(el('button', { className: 'btn btn-ghost btn-sm', textContent: 'Cancel', onClick: () => editorArea.remove() }));
+        editorArea.appendChild(row);
+        sfContent.appendChild(editorArea);
+      }
+    });
+    btn.innerHTML = icon('plus', 12) + ' New ' + label;
+    return btn;
+  };
+  quickActions.append(makeQuickBtn('Script', 'scripts'), makeQuickBtn('Reference', 'references'), makeQuickBtn('Asset', 'assets'));
+  sfContent.appendChild(quickActions);
+
+  // Tree view of supporting files
+  const sfTree = el('div', { className: 'sf-tree' });
+  SUBDIRS.forEach(subdir => {
+    const dirRow = el('div', { style: { display: 'flex', alignItems: 'center', gap: '6px', padding: '4px 0', fontWeight: '600', fontSize: '13px' } });
+    dirRow.innerHTML = icon('folder', 14);
+    dirRow.appendChild(el('span', { textContent: ' ' + subdir + '/' }));
+    sfTree.appendChild(dirRow);
+
+    const filesList = el('div', { style: { paddingLeft: '22px' } });
+    filesList.appendChild(el('span', { textContent: 'Scanning...', style: { fontSize: '11px', color: 'var(--text-muted)' } }));
+    sfTree.appendChild(filesList);
+
+    (async () => {
+      try {
+        const dirHandle = await skill.dirHandle.getDirectoryHandle(subdir, { create: false });
+        const files = [];
+        for await (const entry of dirHandle.values()) {
+          if (entry.kind === 'file') files.push(entry.name);
+        }
+        filesList.innerHTML = '';
+        if (files.length === 0) {
+          filesList.appendChild(el('span', { textContent: '(empty)', style: { fontSize: '11px', color: 'var(--text-muted)' } }));
+        } else {
+          files.sort().forEach(fname => {
+            const fRow = el('div', { style: { display: 'flex', alignItems: 'center', gap: '6px', padding: '2px 0', fontSize: '12px', cursor: 'pointer', color: 'var(--text-muted)' },
+              onClick: async () => {
+                const content = await readSupportingFile(skill, subdir, fname);
+                if (content === null) { toast('Could not read file', 'error'); return; }
+                // Show inline editor
+                const existingEd = sfContent.querySelector('.sf-inline-editor');
+                if (existingEd) existingEd.remove();
+                const ed = el('div', { className: 'sf-inline-editor', style: { border: '1px solid var(--accent)', borderRadius: 'var(--radius)', padding: '12px', marginTop: '8px', background: 'var(--bg)' } });
+                const edHeader = el('div', { style: { display: 'flex', alignItems: 'center', marginBottom: '6px' } });
+                edHeader.appendChild(el('span', { textContent: subdir + '/' + fname, style: { fontFamily: 'var(--mono)', fontSize: '12px', fontWeight: '600', flex: '1' } }));
+                edHeader.appendChild(el('button', { className: 'btn btn-ghost btn-sm', 'aria-label': 'Close editor', onClick: () => ed.remove(), innerHTML: icon('x', 12) }));
+                ed.appendChild(edHeader);
+                const ta = el('textarea', { className: 'form-textarea', value: content, style: { minHeight: '120px', fontFamily: 'var(--mono)', fontSize: '12px' }, 'aria-label': 'Edit ' + fname });
+                ed.appendChild(ta);
+                ed.appendChild(el('button', { className: 'btn btn-primary btn-sm', textContent: 'Save', style: { marginTop: '6px' },
+                  onClick: async () => { if (await writeSupportingFile(skill, subdir, fname, ta.value)) ed.remove(); }
+                }));
+                sfContent.appendChild(ed);
+              }
+            });
+            fRow.innerHTML = icon('edit', 12);
+            fRow.appendChild(el('span', { textContent: ' ' + fname }));
+            filesList.appendChild(fRow);
+          });
+        }
+      } catch (e) {
+        filesList.innerHTML = '';
+        filesList.appendChild(el('span', { textContent: '(not created)', style: { fontSize: '11px', color: 'var(--text-muted)' } }));
+      }
+    })();
+  });
+  sfContent.appendChild(sfTree);
+  sfPanel.appendChild(sfContent);
+  wrap.appendChild(sfPanel);
 
   // Status bar
   const statusBar = el('div', { className: 'editor-status' });
@@ -2252,6 +2642,132 @@ function renderSync() {
       }
     });
   }
+  return wrap;
+}
+
+// ─── MCP Server Page ─────────────────────────────────────────────
+function renderMcp() {
+  const wrap = el('div', { className: 'slide-up', style: { maxWidth: '700px' } });
+  wrap.appendChild(el('h2', { textContent: 'MCP Server', style: { marginBottom: '8px', fontSize: '22px' } }));
+  wrap.appendChild(el('p', { textContent: 'Run SkillForge as a Model Context Protocol server, letting AI agents manage skills programmatically — create, read, update, delete, and search skills without the UI.', style: { color: 'var(--text-muted)', marginBottom: '20px', fontSize: '14px', lineHeight: '1.6' } }));
+
+  // Status indicator
+  const statusCard = el('div', { style: { display: 'flex', alignItems: 'center', gap: '12px', padding: '14px 18px', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', marginBottom: '24px', background: 'var(--bg-alt)' } });
+  statusCard.appendChild(el('span', { style: { width: '10px', height: '10px', borderRadius: '50%', background: 'var(--warn)', flexShrink: '0' } }));
+  statusCard.appendChild(el('span', { textContent: 'Status: Coming Soon (v2.0)', style: { fontWeight: '600', fontSize: '14px', flex: '1' } }));
+  statusCard.appendChild(el('span', { className: 'quality-score medium', textContent: 'Not Running' }));
+  wrap.appendChild(statusCard);
+
+  // Configuration form
+  wrap.appendChild(el('h3', { textContent: 'Configuration Preview', style: { marginBottom: '12px', fontSize: '16px' } }));
+  wrap.appendChild(el('p', { textContent: 'These settings will be used when the MCP server ships in v2.0.', style: { color: 'var(--text-muted)', marginBottom: '16px', fontSize: '13px' } }));
+
+  const configCard = el('div', { style: { border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '20px', marginBottom: '24px', background: 'var(--bg-card)' } });
+
+  // Server Port
+  const portGroup = el('div', { className: 'form-group' });
+  portGroup.appendChild(el('label', { className: 'form-label', textContent: 'Server Port' }));
+  const portInput = el('input', { className: 'form-input', type: 'number', placeholder: '3000', value: localStorage.getItem('sf-mcp-port') || '3000', 'aria-label': 'MCP server port',
+    onInput: (e) => { localStorage.setItem('sf-mcp-port', e.target.value); }
+  });
+  portGroup.appendChild(portInput);
+  portGroup.appendChild(el('div', { className: 'form-hint', textContent: 'Port for the MCP server to listen on' }));
+  configCard.appendChild(portGroup);
+
+  // Auth Token
+  const authGroup = el('div', { className: 'form-group' });
+  authGroup.appendChild(el('label', { className: 'form-label', textContent: 'Auth Token' }));
+  const authInput = el('input', { className: 'form-input', type: 'password', placeholder: 'Enter authentication token', value: localStorage.getItem('sf-mcp-token') || '', 'aria-label': 'MCP authentication token',
+    onInput: (e) => { localStorage.setItem('sf-mcp-token', e.target.value); }
+  });
+  authGroup.appendChild(authInput);
+  authGroup.appendChild(el('div', { className: 'form-hint', textContent: 'Token for authenticating API requests' }));
+  configCard.appendChild(authGroup);
+
+  // Allowed Operations
+  const opsGroup = el('div', { className: 'form-group' });
+  opsGroup.appendChild(el('label', { className: 'form-label', textContent: 'Allowed Operations' }));
+  const savedOps = JSON.parse(localStorage.getItem('sf-mcp-ops') || '["read","write","delete","search"]');
+  const opsRow = el('div', { style: { display: 'flex', gap: '16px', flexWrap: 'wrap' } });
+  ['read', 'write', 'delete', 'search'].forEach(op => {
+    const label = el('label', { style: { display: 'flex', alignItems: 'center', gap: '6px', fontSize: '14px', cursor: 'pointer' } });
+    const cb = el('input', { type: 'checkbox', 'aria-label': 'Allow ' + op + ' operations' });
+    cb.checked = savedOps.includes(op);
+    cb.addEventListener('change', () => {
+      const current = JSON.parse(localStorage.getItem('sf-mcp-ops') || '["read","write","delete","search"]');
+      if (cb.checked && !current.includes(op)) current.push(op);
+      else if (!cb.checked) { const idx = current.indexOf(op); if (idx >= 0) current.splice(idx, 1); }
+      localStorage.setItem('sf-mcp-ops', JSON.stringify(current));
+    });
+    label.appendChild(cb);
+    label.appendChild(document.createTextNode(op.charAt(0).toUpperCase() + op.slice(1)));
+    opsRow.appendChild(label);
+  });
+  opsGroup.appendChild(opsRow);
+  configCard.appendChild(opsGroup);
+
+  // Skills Root Path
+  const pathGroup = el('div', { className: 'form-group' });
+  pathGroup.appendChild(el('label', { className: 'form-label', textContent: 'Skills Root Path' }));
+  const pathValue = State.dirHandle ? State.dirHandle.name : '(no folder selected)';
+  const pathDisplay = el('div', { style: { padding: '9px 12px', border: '1px solid var(--border)', borderRadius: 'var(--radius)', background: 'var(--bg-alt)', fontFamily: 'var(--mono)', fontSize: '13px', color: 'var(--text-muted)' }, textContent: pathValue });
+  pathGroup.appendChild(pathDisplay);
+  pathGroup.appendChild(el('div', { className: 'form-hint', textContent: 'Current skills folder — change via the sidebar' }));
+  configCard.appendChild(pathGroup);
+
+  // Save button
+  const saveBtn = el('button', { className: 'btn btn-primary', style: { marginTop: '8px' }, textContent: 'Save Configuration',
+    onClick: () => {
+      localStorage.setItem('sf-mcp-port', portInput.value);
+      localStorage.setItem('sf-mcp-token', authInput.value);
+      toast('MCP configuration saved');
+    }
+  });
+  configCard.appendChild(saveBtn);
+  wrap.appendChild(configCard);
+
+  // API Endpoints Preview
+  wrap.appendChild(el('h3', { textContent: 'API Endpoints (Preview)', style: { marginBottom: '12px', fontSize: '16px' } }));
+  wrap.appendChild(el('p', { textContent: 'These endpoints will be available when the MCP server is running:', style: { color: 'var(--text-muted)', marginBottom: '12px', fontSize: '13px' } }));
+
+  const endpoints = [
+    { method: 'GET', path: '/skills', desc: 'List all skills' },
+    { method: 'GET', path: '/skills/:name', desc: 'Get skill details' },
+    { method: 'POST', path: '/skills', desc: 'Create a new skill' },
+    { method: 'PUT', path: '/skills/:name', desc: 'Update a skill' },
+    { method: 'DELETE', path: '/skills/:name', desc: 'Delete a skill' },
+    { method: 'POST', path: '/skills/search', desc: 'Search skills' },
+    { method: 'POST', path: '/skills/validate', desc: 'Validate a skill' },
+  ];
+
+  const endpointTable = el('div', { style: { border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', overflow: 'hidden', marginBottom: '24px' } });
+  endpoints.forEach((ep, i) => {
+    const methodColors = { GET: 'var(--success)', POST: 'var(--accent)', PUT: 'var(--warn)', DELETE: 'var(--error)' };
+    const row = el('div', { style: { display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 16px', fontSize: '13px', borderBottom: i < endpoints.length - 1 ? '1px solid var(--border)' : 'none', background: i % 2 === 0 ? 'var(--bg-card)' : 'var(--bg-alt)' } });
+    row.appendChild(el('span', { textContent: ep.method, style: { fontWeight: '700', fontSize: '11px', width: '56px', textAlign: 'center', color: methodColors[ep.method] || 'var(--text)', padding: '2px 8px', borderRadius: '4px', border: '1px solid ' + (methodColors[ep.method] || 'var(--border)'), flexShrink: '0' } }));
+    row.appendChild(el('code', { textContent: ep.path, style: { fontFamily: 'var(--mono)', fontSize: '13px', flex: '1' } }));
+    row.appendChild(el('span', { textContent: ep.desc, style: { color: 'var(--text-muted)', fontSize: '12px', flexShrink: '0' } }));
+    endpointTable.appendChild(row);
+  });
+  wrap.appendChild(endpointTable);
+
+  // How MCP works
+  wrap.appendChild(el('h3', { textContent: 'How MCP Works with Agents', style: { marginBottom: '12px', fontSize: '16px' } }));
+  const mcpInfo = el('div', { style: { border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '20px', background: 'var(--bg-card)', lineHeight: '1.6', fontSize: '14px' } });
+  mcpInfo.innerHTML = `
+    <p style="margin-bottom:12px">The <strong>Model Context Protocol (MCP)</strong> is an open standard that enables AI agents to interact with external tools and data sources through a unified interface.</p>
+    <p style="margin-bottom:12px">When the MCP server is running, AI agents like Claude Code, Codex, Cursor, and Copilot can:</p>
+    <ul style="padding-left:20px;margin-bottom:12px;color:var(--text-muted)">
+      <li style="margin-bottom:4px">Discover and browse your skill library</li>
+      <li style="margin-bottom:4px">Create new skills from conversation context</li>
+      <li style="margin-bottom:4px">Update existing skills based on feedback</li>
+      <li style="margin-bottom:4px">Search skills by name, description, or content</li>
+      <li style="margin-bottom:4px">Validate skills against the agentskills.io specification</li>
+    </ul>
+    <p style="color:var(--text-muted)">The server runs locally on your machine — your skills never leave your device unless you explicitly export or share them.</p>
+  `;
+  wrap.appendChild(mcpInfo);
+
   return wrap;
 }
 
