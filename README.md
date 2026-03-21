@@ -49,7 +49,7 @@ That's it. No install, no build, no dependencies.
 | Shortcut | Action |
 |----------|--------|
 | `Ctrl+K` / `Cmd+K` | Focus search |
-| `Ctrl+N` / `Cmd+N` | Create new skill |
+| `Ctrl+Shift+N` / `Cmd+Shift+N` | Create new skill |
 | `Ctrl+S` / `Cmd+S` | Save (in editor) |
 | `Tab` | Insert indent (in editor) |
 | `Escape` | Close panel/modal |
@@ -103,7 +103,7 @@ Your Markdown instructions here.
 
 ## Technical Details
 
-- **Size**: ~116 KB (all CSS, JS, YAML parser, Markdown renderer, and ZIP builder inlined)
+- **Size**: ~121 KB (all CSS, JS, YAML parser, Markdown renderer, and ZIP builder inlined)
 - **Dependencies**: Zero runtime dependencies. Everything is embedded.
 - **Storage**: Skills on your local filesystem; preferences in localStorage
 - **Privacy**: No data is ever transmitted to any server
