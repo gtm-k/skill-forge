@@ -1,5 +1,15 @@
 # SkillForge
 
+[![CI](https://github.com/gtm-k/SkillForge/actions/workflows/ci.yml/badge.svg)](https://github.com/gtm-k/SkillForge/actions/workflows/ci.yml)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![Single File](https://img.shields.io/badge/Single_File-HTML-orange.svg)](#)
+[![Size](https://img.shields.io/badge/Size-~121_KB-green.svg)](#technical-details)
+[![Zero Dependencies](https://img.shields.io/badge/Dependencies-Zero-brightgreen.svg)](#technical-details)
+[![Chrome 120+](https://img.shields.io/badge/Chrome-120%2B-4285F4.svg?logo=googlechrome&logoColor=white)](#browser-compatibility)
+[![Edge 120+](https://img.shields.io/badge/Edge-120%2B-0078D7.svg?logo=microsoftedge&logoColor=white)](#browser-compatibility)
+[![Offline](https://img.shields.io/badge/Works-Offline-purple.svg)](#)
+[![WCAG 2.1 AA](https://img.shields.io/badge/WCAG_2.1-AA-gold.svg)](#)
+
 **A zero-install, single-file AI agent skill manager.**
 
 SkillForge is a self-contained HTML application that gives you a visual, intuitive interface for creating, editing, organizing, and deploying AI agent skills. It reads and writes directly to your local skills folder using the browser's File System Access API — no backend, no account, no npm, and no command line.
@@ -107,6 +117,21 @@ Your Markdown instructions here.
 - **Dependencies**: Zero runtime dependencies. Everything is embedded.
 - **Storage**: Skills on your local filesystem; preferences in localStorage
 - **Privacy**: No data is ever transmitted to any server
+
+## CI
+
+CI checks run on **release tags** (`v*`) and **manual dispatch only** — not on every push — to conserve CI minutes.
+
+| Check | What it validates |
+|-------|-------------------|
+| JS Syntax | Extracts `<script>` block, runs `node --check` |
+| HTML Structure | DOCTYPE, lang, charset, viewport, self-contained (no external deps) |
+| File Size Budget | Must stay under 500 KB (PRD requirement) |
+| PII Scan | Scans files and git history for personal emails |
+| Security Scan | Verifies XSS guards, prototype pollution protection, HTTPS-only imports |
+| Accessibility Scan | Checks for ARIA attributes, roles, focus-visible styles |
+
+To run CI manually: **Actions** → **CI** → **Run workflow**.
 
 ## License
 

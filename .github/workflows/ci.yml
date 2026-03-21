@@ -1,0 +1,191 @@
+# SkillForge CI — Quality & Security Checks
+# Runs on: manual trigger (workflow_dispatch) and release tags only.
+# Does NOT run on every push or PR to conserve CI minutes.
+
+name: CI
+
+on:
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Reason for running CI'
+        required: false
+        default: 'Manual trigger'
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    name: Quality Checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # --- JavaScript Syntax Validation ---
+      - name: JS Syntax Check
+        run: |
+          echo "::group::Extracting JS from SkillForge.html"
+          sed -n '/<script>/,/<\/script>/p' SkillForge.html | sed '1d;$d' > /tmp/skillforge.js
+          echo "::endgroup::"
+          echo "::group::Running Node.js syntax check"
+          node --check /tmp/skillforge.js
+          echo "✅ JavaScript syntax is valid"
+          echo "::endgroup::"
+
+      # --- HTML Structure Validation ---
+      - name: HTML Structure Check
+        run: |
+          echo "::group::Validating HTML structure"
+          # Check for required elements
+          grep -q '<!DOCTYPE html>' SkillForge.html || { echo "❌ Missing DOCTYPE"; exit 1; }
+          grep -q '<html lang=' SkillForge.html || { echo "❌ Missing html lang attribute"; exit 1; }
+          grep -q '<meta charset=' SkillForge.html || { echo "❌ Missing charset meta"; exit 1; }
+          grep -q '<meta name="viewport"' SkillForge.html || { echo "❌ Missing viewport meta"; exit 1; }
+          grep -q '</html>' SkillForge.html || { echo "❌ Missing closing html tag"; exit 1; }
+
+          # Verify it's a single-file app (no external script/link tags)
+          EXTERNAL_SCRIPTS=$(grep -cE '<script[^>]+src=' SkillForge.html || true)
+          if [ "$EXTERNAL_SCRIPTS" -gt 0 ]; then
+            echo "❌ Found external script tags — app must be self-contained"
+            exit 1
+          fi
+          EXTERNAL_LINKS=$(grep -cE '<link[^>]+href=.*\.css' SkillForge.html || true)
+          if [ "$EXTERNAL_LINKS" -gt 0 ]; then
+            echo "❌ Found external CSS links — app must be self-contained"
+            exit 1
+          fi
+
+          echo "✅ HTML structure is valid and self-contained"
+          echo "::endgroup::"
+
+      # --- File Size Budget (PRD: < 500 KB) ---
+      - name: File Size Budget
+        run: |
+          MAX_KB=500
+          SIZE_BYTES=$(stat --format=%s SkillForge.html)
+          SIZE_KB=$((SIZE_BYTES / 1024))
+          echo "SkillForge.html: ${SIZE_KB} KB (budget: ${MAX_KB} KB)"
+          if [ "$SIZE_KB" -gt "$MAX_KB" ]; then
+            echo "❌ File size ${SIZE_KB} KB exceeds ${MAX_KB} KB budget"
+            exit 1
+          fi
+          echo "✅ File size within budget"
+
+      # --- PII / Personal Email Scan ---
+      - name: PII Scan
+        run: |
+          echo "::group::Scanning for personal information"
+          # Check all tracked files for common PII patterns
+          # Add known personal email patterns to block here
+          FOUND=0
+          for pattern in "@gmail.com" "@yahoo.com" "@hotmail.com" "@outlook.com" "@icloud.com" "@kethineedi"; do
+            if grep -rn "$pattern" --include="*.html" --include="*.md" --include="*.py" --include="*.txt" --include="*.json" . 2>/dev/null | grep -v ".git/"; then
+              echo "❌ Found potential PII pattern: $pattern"
+              FOUND=1
+            fi
+          done
+          # Check git commit emails
+          COMMIT_EMAILS=$(git log --format='%ae' | sort -u)
+          echo "Commit emails found: $COMMIT_EMAILS"
+          for email in $COMMIT_EMAILS; do
+            case "$email" in
+              *@gmail.com|*@yahoo.com|*@hotmail.com|*@outlook.com|*@icloud.com|*@kethineedi*)
+                echo "❌ Personal email found in git history: $email"
+                FOUND=1
+                ;;
+            esac
+          done
+          if [ "$FOUND" -eq 1 ]; then
+            echo "❌ PII detected — review and remove before publishing"
+            exit 1
+          fi
+          echo "✅ No personal information found"
+          echo "::endgroup::"
+
+      # --- Security: Check for dangerous patterns ---
+      - name: Security Scan
+        run: |
+          echo "::group::Scanning for security anti-patterns"
+          ISSUES=0
+          # Check for eval() usage
+          if grep -n 'eval(' SkillForge.html | grep -v '// ' | grep -v '<!--'; then
+            echo "⚠️  eval() usage detected"
+            ISSUES=$((ISSUES + 1))
+          fi
+          # Check for innerHTML with unsanitized template literals from user input
+          # (informational — not all innerHTML is dangerous)
+          INNERHTML_COUNT=$(grep -c 'innerHTML' SkillForge.html || true)
+          echo "ℹ️  innerHTML usage count: ${INNERHTML_COUNT} (review for XSS vectors)"
+          # Check that javascript: protocol is blocked in link renderer
+          if grep -q "safeUrl" SkillForge.html; then
+            echo "✅ Link sanitizer (safeUrl) is present"
+          else
+            echo "❌ Missing link URL sanitizer"
+            ISSUES=$((ISSUES + 1))
+          fi
+          # Check for prototype pollution guards
+          if grep -q "DANGEROUS_KEYS" SkillForge.html; then
+            echo "✅ Prototype pollution guard (DANGEROUS_KEYS) is present"
+          else
+            echo "❌ Missing prototype pollution guard"
+            ISSUES=$((ISSUES + 1))
+          fi
+          # Check for HTTPS-only import
+          if grep -q "parsed.protocol !== 'https:'" SkillForge.html; then
+            echo "✅ HTTPS-only import validation is present"
+          else
+            echo "❌ Missing HTTPS-only import check"
+            ISSUES=$((ISSUES + 1))
+          fi
+          if [ "$ISSUES" -gt 0 ]; then
+            echo "❌ ${ISSUES} security issue(s) found"
+            exit 1
+          fi
+          echo "✅ Security checks passed"
+          echo "::endgroup::"
+
+      # --- Accessibility: ARIA & Semantic checks ---
+      - name: Accessibility Scan
+        run: |
+          echo "::group::Checking accessibility attributes"
+          # Count ARIA attributes
+          ARIA_COUNT=$(grep -co 'aria-' SkillForge.html || true)
+          ROLE_COUNT=$(grep -co 'role=' SkillForge.html || true)
+          echo "ARIA attributes: ${ARIA_COUNT}"
+          echo "role attributes: ${ROLE_COUNT}"
+          # Check for essential ARIA patterns
+          grep -q 'aria-label' SkillForge.html || { echo "❌ No aria-label found"; exit 1; }
+          grep -q 'aria-live' SkillForge.html || { echo "⚠️  No aria-live regions found"; }
+          grep -q 'role="dialog"' SkillForge.html || { echo "⚠️  No dialog roles found"; }
+          grep -q ':focus-visible' SkillForge.html || { echo "❌ No :focus-visible styles"; exit 1; }
+          echo "✅ Accessibility baseline met"
+          echo "::endgroup::"
+
+      # --- Build Summary ---
+      - name: Summary
+        run: |
+          SIZE_BYTES=$(stat --format=%s SkillForge.html)
+          SIZE_KB=$((SIZE_BYTES / 1024))
+          LINES=$(wc -l < SkillForge.html)
+          JS_LINES=$(sed -n '/<script>/,/<\/script>/p' SkillForge.html | wc -l)
+          CSS_LINES=$(sed -n '/<style>/,/<\/style>/p' SkillForge.html | wc -l)
+          echo "## SkillForge CI Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| File size | ${SIZE_KB} KB |" >> $GITHUB_STEP_SUMMARY
+          echo "| Total lines | ${LINES} |" >> $GITHUB_STEP_SUMMARY
+          echo "| JS lines | ${JS_LINES} |" >> $GITHUB_STEP_SUMMARY
+          echo "| CSS lines | ${CSS_LINES} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "All checks passed ✅" >> $GITHUB_STEP_SUMMARY
