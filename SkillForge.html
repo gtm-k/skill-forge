@@ -1251,7 +1251,7 @@ function renderSidebar() {
   items.forEach(item => {
     const btn = el('button', {
       className: `nav-item${State.view === item.id ? ' active' : ''}`,
-      onClick: () => { State.view = item.id; if (item.id === 'wizard') { State.wizardStep = 0; State.wizardData = {}; } render(); },
+      onClick: () => { if (State.view === 'editor' && State.editorDirty && !confirm('You have unsaved changes. Discard?')) return; State.editorDirty = false; State.view = item.id; if (item.id === 'wizard') { State.wizardStep = 0; State.wizardData = {}; } render(); },
       'aria-label': item.label,
     });
     btn.innerHTML = icon(item.icon);
@@ -1301,7 +1301,7 @@ function renderTopbarEl() {
   actions.appendChild(themeBtn);
 
   // New skill
-  const newBtn = el('button', { className: 'btn btn-primary btn-sm', onClick: () => { State.view = 'wizard'; State.wizardStep = 0; State.wizardData = {}; render(); } });
+  const newBtn = el('button', { className: 'btn btn-primary btn-sm', onClick: () => { if (State.view === 'editor' && State.editorDirty && !confirm('You have unsaved changes. Discard?')) return; State.editorDirty = false; State.view = 'wizard'; State.wizardStep = 0; State.wizardData = {}; render(); } });
   newBtn.innerHTML = `${icon('plus', 14)} New Skill`;
   actions.appendChild(newBtn);
   topbar.appendChild(actions);
@@ -2248,7 +2248,7 @@ function renderEditor() {
     updatePreview(wrap);
   } });
   saveBtn.innerHTML = `${icon('check', 14)} Save`;
-  const backBtn = el('button', { className: 'btn btn-ghost btn-sm', onClick: () => { State.view = 'dashboard'; render(); } });
+  const backBtn = el('button', { className: 'btn btn-ghost btn-sm', onClick: () => { if (State.editorDirty && !confirm('You have unsaved changes. Discard and go back to Library?')) return; State.editorDirty = false; State.view = 'dashboard'; render(); } });
   backBtn.textContent = 'Back to Library';
   toolbar.append(backBtn, insertFm, insertCode, saveBtn);
   wrap.appendChild(toolbar);
@@ -2791,7 +2791,8 @@ document.addEventListener('keydown', (e) => {
   // Ctrl+N → new skill
   if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'N') {
     e.preventDefault();
-    State.view = 'wizard'; State.wizardStep = 0; State.wizardData = {};
+    if (State.view === 'editor' && State.editorDirty && !confirm('You have unsaved changes. Discard?')) return;
+    State.editorDirty = false; State.view = 'wizard'; State.wizardStep = 0; State.wizardData = {};
     render();
   }
   // Escape → close panel
