@@ -370,7 +370,7 @@ const YAML = {
 
       if (inMap && line.match(/^  \s*\S+:/)) {
         const m = line.match(/^\s+(\S+):\s*(.*)/);
-        if (m) { mapItems[m[1]] = m[2].replace(/^["']|["']$/g, '').trim(); continue; }
+        if (m && !DANGEROUS_KEYS.has(m[1])) { mapItems[m[1]] = m[2].replace(/^["']|["']$/g, '').trim(); continue; }
       } else if (inMap) {
         flushMap();
       }
@@ -379,6 +379,7 @@ const YAML = {
       if (kv) {
         flushList(); flushMap();
         const key = kv[1];
+        if (DANGEROUS_KEYS.has(key)) continue;
         let val = kv[2].trim();
         if (val === '' || val === '|' || val === '>') {
           // Check if next line is a list item or map
@@ -454,7 +455,7 @@ const MD = {
     html = html.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     // Code blocks
     html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) =>
-      `<pre><code class="lang-${lang}">${code.trim()}</code></pre>`);
+      `<pre><code class="lang-${lang.replace(/[^a-zA-Z0-9-]/g, '')}">${code.trim()}</code></pre>`);
     // Inline code
     html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
     // Headers
@@ -523,7 +524,10 @@ const ZIP = {
     // Build local file headers + data
     const parts = [];
     for (const file of files) {
-      const nameBytes = enc.encode(file.name);
+      // Sanitize filename: reject path traversal sequences
+      const safeName = file.name.replace(/\.\.\//g, '').replace(/\.\.\\/g, '').replace(/^\/+/, '');
+      if (!safeName || safeName.includes('..')) continue;
+      const nameBytes = enc.encode(safeName);
       const data = file.data;
       const crc = this.crc32(data);
       // Local file header
@@ -615,6 +619,11 @@ const State = {
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────
+function esc(str) {
+  if (!str) return '';
+  return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+}
+const DANGEROUS_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 const $ = (s, p) => (p || document).querySelector(s);
 const $$ = (s, p) => [...(p || document).querySelectorAll(s)];
 const el = (tag, attrs, ...children) => {
@@ -634,6 +643,15 @@ const el = (tag, attrs, ...children) => {
 function slugify(str) {
   return str.toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '').slice(0, 64);
 }
+
+let _debounceTimer = null;
+function debounce(fn, ms) {
+  return function(...args) {
+    clearTimeout(_debounceTimer);
+    _debounceTimer = setTimeout(() => fn.apply(this, args), ms);
+  };
+}
+const debouncedRenderContent = debounce(renderContent, 150);
 
 function truncate(str, len) {
   if (!str) return '';
@@ -684,10 +702,10 @@ function cycleTheme() {
 
 // ─── Toast ───────────────────────────────────────────────────────
 function toast(msg, type = 'success') {
-  const container = $('.toast-container') || document.body.appendChild(el('div', { className: 'toast-container' }));
-  const t = el('div', { className: `toast ${type}`, textContent: msg });
+  const container = $('.toast-container') || document.body.appendChild(el('div', { className: 'toast-container', role: 'status', 'aria-live': 'polite' }));
+  const t = el('div', { className: `toast ${type}`, textContent: msg, role: 'alert' });
   container.appendChild(t);
-  setTimeout(() => { t.style.opacity = '0'; t.style.transition = 'opacity .3s'; setTimeout(() => t.remove(), 300); }, 3000);
+  setTimeout(() => { t.style.opacity = '0'; t.style.transition = 'opacity .3s'; setTimeout(() => { if (t.parentNode) t.remove(); }, 300); }, 3000);
 }
 
 // ─── Validation Engine (F-05) ────────────────────────────────────
@@ -994,9 +1012,12 @@ function downloadBlob(blob, name) {
 }
 
 async function importFromUrl() {
-  const url = prompt('Paste a raw SKILL.md URL:');
+  const url = prompt('Paste a raw SKILL.md URL (HTTPS only):');
   if (!url) return;
   try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== 'https:') { toast('Only HTTPS URLs are allowed', 'error'); return; }
+    if (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1' || parsed.hostname === '[::1]' || parsed.hostname.endsWith('.local') || /^(10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.)/.test(parsed.hostname)) { toast('Local/private URLs are not allowed', 'error'); return; }
     const resp = await fetch(url);
     if (!resp.ok) throw new Error('HTTP ' + resp.status);
     const content = await resp.text();
@@ -1247,7 +1268,7 @@ function renderTopbarEl() {
   const searchInput = el('input', {
     type: 'text', placeholder: 'Search skills...', value: State.searchQuery,
     'aria-label': 'Search skills',
-    onInput: (e) => { State.searchQuery = e.target.value; renderContent(); },
+    onInput: (e) => { State.searchQuery = e.target.value; debouncedRenderContent(); },
   });
   searchBox.appendChild(searchInput);
   searchBox.appendChild(el('span', { className: 'search-kbd', textContent: 'Ctrl+K' }));
@@ -1419,6 +1440,9 @@ function renderSkillCard(skill) {
     role: 'button',
     tabindex: '0',
     'aria-label': `Skill: ${skill.frontmatter.name || skill.dirName}`,
+    onKeydown: (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); card.click(); }
+    },
   });
 
   // Checkbox for bulk mode
@@ -1486,10 +1510,13 @@ function renderPanel() {
   // Remove existing
   $$('.panel-overlay, .slide-panel').forEach(el => el.remove());
 
+  const panelEscHandler = (e) => { if (e.key === 'Escape') closePanel(); };
+  document.addEventListener('keydown', panelEscHandler);
   const overlay = el('div', { className: 'panel-overlay open', onClick: closePanel });
+  overlay._escHandler = panelEscHandler;
   document.body.appendChild(overlay);
 
-  const panel = el('div', { className: 'slide-panel open' });
+  const panel = el('div', { className: 'slide-panel open', role: 'dialog', 'aria-label': 'Skill details: ' + (skill.frontmatter.name || skill.dirName) });
 
   // Header
   const header = el('div', { className: 'panel-header' });
@@ -1500,10 +1527,13 @@ function renderPanel() {
   panel.appendChild(header);
 
   // Tabs
-  const tabs = el('div', { className: 'panel-tabs' });
+  const tabs = el('div', { className: 'panel-tabs', role: 'tablist', 'aria-label': 'Skill detail tabs' });
   ['preview', 'source', 'files', 'quality', 'history', 'agents'].forEach(t => {
     const tab = el('button', { className: `panel-tab${panelTab === t ? ' active' : ''}`,
       textContent: t.charAt(0).toUpperCase() + t.slice(1),
+      role: 'tab',
+      'aria-selected': panelTab === t ? 'true' : 'false',
+      'aria-label': t.charAt(0).toUpperCase() + t.slice(1) + ' tab',
       onClick: () => { panelTab = t; renderPanel(); }
     });
     tabs.appendChild(tab);
@@ -1524,7 +1554,9 @@ function renderPanel() {
     case 'files':
       skill.files.forEach(f => {
         const item = el('div', { style: { padding: '8px 0', borderBottom: '1px solid var(--border)', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '8px' } });
-        item.innerHTML = `${f.kind === 'directory' ? icon('folder', 14) : icon('edit', 14)} ${f.name}`;
+        const fileIcon = el('span', { innerHTML: f.kind === 'directory' ? icon('folder', 14) : icon('edit', 14) });
+        item.appendChild(fileIcon);
+        item.appendChild(document.createTextNode(' ' + f.name));
         body.appendChild(item);
       });
       if (skill.files.length === 0) body.textContent = 'No files found.';
@@ -1560,9 +1592,15 @@ function renderPanel() {
   panel.appendChild(actions);
 
   document.body.appendChild(panel);
+  // Focus close button for accessibility
+  requestAnimationFrame(() => { const btn = panel.querySelector('[aria-label="Close panel"]'); if (btn) btn.focus(); });
 }
 
 function closePanel() {
+  const overlay = $('.panel-overlay');
+  if (overlay && overlay._escHandler) {
+    document.removeEventListener('keydown', overlay._escHandler);
+  }
   $$('.panel-overlay, .slide-panel').forEach(el => el.remove());
   State.currentSkill = null;
 }
@@ -1591,13 +1629,17 @@ function renderQualityPanel(skill) {
   wrap.appendChild(el('h3', { textContent: 'Validation', style: { marginTop: '24px', marginBottom: '12px', fontSize: '16px' } }));
   const vList = el('div', { className: 'validation-list' });
   if (skill.validation.length === 0) {
-    vList.appendChild(el('div', { className: 'validation-item pass', innerHTML: `<span class="validation-icon">✓</span> All checks passed` }));
+    const passItem = el('div', { className: 'validation-item pass' });
+    passItem.appendChild(el('span', { className: 'validation-icon', textContent: '✓' }));
+    passItem.appendChild(document.createTextNode(' All checks passed'));
+    vList.appendChild(passItem);
   } else {
     skill.validation.forEach(v => {
       const cls = v.type === 'error' ? 'fail' : 'warn';
       const ic = v.type === 'error' ? '✕' : '⚠';
       const item = el('div', { className: `validation-item ${cls}` });
-      item.innerHTML = `<span class="validation-icon">${ic}</span> ${v.msg}`;
+      item.appendChild(el('span', { className: 'validation-icon', textContent: ic }));
+      item.appendChild(document.createTextNode(' ' + v.msg));
       if (v.autoFix === 'slug') {
         const fixBtn = el('button', { className: 'btn btn-sm btn-secondary', textContent: 'Auto-fix', style: { marginLeft: 'auto' },
           onClick: async () => {
@@ -1625,7 +1667,8 @@ async function renderHistoryPanel(skill, body) {
   history.forEach((h, i) => {
     const item = el('div', { className: 'history-item' });
     const date = new Date(h.ts);
-    item.innerHTML = `<span class="timestamp">${date.toLocaleString()}</span><span class="snapshot-info">${h.content.split('\\n').length} lines</span>`;
+    item.appendChild(el('span', { className: 'timestamp', textContent: date.toLocaleString() }));
+    item.appendChild(el('span', { className: 'snapshot-info', textContent: h.content.split('\n').length + ' lines' }));
     const restoreBtn = el('button', { className: 'btn btn-sm btn-secondary', textContent: 'Restore',
       onClick: async () => {
         if (!confirm('Restore this version?')) return;
@@ -1661,7 +1704,7 @@ function renderWizard() {
   const steps = ['Name & Purpose', 'Template', 'Instructions', 'Advanced', 'Review'];
 
   // Step indicators
-  const stepsEl = el('div', { className: 'wizard-steps' });
+  const stepsEl = el('div', { className: 'wizard-steps', role: 'navigation', 'aria-label': 'Wizard progress' });
   stepsEl.appendChild(el('div', { className: 'wizard-connector' }));
   steps.forEach((s, i) => {
     const step = el('div', { className: `wizard-step${i === State.wizardStep ? ' active' : ''}${i < State.wizardStep ? ' done' : ''}` });
@@ -1859,7 +1902,10 @@ function renderWizardStep4() {
     issues.forEach(v => {
       const cls = v.type === 'error' ? 'fail' : 'warn';
       const ic = v.type === 'error' ? '✕' : '⚠';
-      vList.appendChild(el('div', { className: `validation-item ${cls}`, innerHTML: `<span class="validation-icon">${ic}</span> ${v.msg}` }));
+      const vItem = el('div', { className: `validation-item ${cls}` });
+      vItem.appendChild(el('span', { className: 'validation-icon', textContent: ic }));
+      vItem.appendChild(document.createTextNode(' ' + v.msg));
+      vList.appendChild(vItem);
     });
     wrap.appendChild(vList);
   }
@@ -2018,7 +2064,8 @@ function renderSettings() {
   wrap.appendChild(el('h3', { textContent: 'AI-Assisted Writing (BYOK)', style: { marginTop: '24px', marginBottom: '12px' } }));
   const aiPanel = el('div', { className: 'ai-panel' });
   aiPanel.appendChild(el('h4', { textContent: 'Bring Your Own API Key' }));
-  aiPanel.appendChild(el('p', { textContent: 'Your API key is stored locally in your browser and only sent to the AI provider you select.', style: { fontSize: '12px', color: 'var(--text-muted)', marginBottom: '12px' } }));
+  aiPanel.appendChild(el('p', { textContent: 'Your API key is stored locally in your browser and only sent to the AI provider you select.', style: { fontSize: '12px', color: 'var(--text-muted)', marginBottom: '8px' } }));
+  aiPanel.appendChild(el('p', { textContent: '⚠ Warning: API keys in localStorage can be accessed by any script on this page. Only use this on trusted devices. Clear your key when not in use.', style: { fontSize: '12px', color: 'var(--warn)', marginBottom: '12px' } }));
 
   const providerGroup = el('div', { className: 'form-group' });
   providerGroup.appendChild(el('label', { className: 'form-label', textContent: 'Provider' }));
@@ -2148,7 +2195,9 @@ function renderSync() {
 
   // Current folder
   const currentDiv = el('div', { className: 'folder-item', style: { marginBottom: '16px' } });
-  currentDiv.innerHTML = `<span style="font-weight:600;font-size:14px">Primary Folder</span><span class="folder-path">${State.dirHandle?.name || 'Not set'}</span><span class="folder-count">${State.skills.length} skills</span>`;
+  currentDiv.appendChild(el('span', { style: { fontWeight: '600', fontSize: '14px' }, textContent: 'Primary Folder' }));
+  currentDiv.appendChild(el('span', { className: 'folder-path', textContent: State.dirHandle?.name || 'Not set' }));
+  currentDiv.appendChild(el('span', { className: 'folder-count', textContent: State.skills.length + ' skills' }));
   wrap.appendChild(currentDiv);
 
   // Add folder
@@ -2179,7 +2228,8 @@ function renderSync() {
     wrap.appendChild(el('h3', { textContent: 'Additional Folders', style: { marginTop: '24px', marginBottom: '12px' } }));
     State.additionalFolders.forEach((folder, fi) => {
       const item = el('div', { className: 'folder-item' });
-      item.innerHTML = `<span class="folder-path">${folder.name}</span><span class="folder-count">${folder.skills.length} skills</span>`;
+      item.appendChild(el('span', { className: 'folder-path', textContent: folder.name }));
+      item.appendChild(el('span', { className: 'folder-count', textContent: folder.skills.length + ' skills' }));
       // Show skills not in primary
       const missing = folder.skills.filter(s => !State.skills.some(sk => sk.dirName === s));
       if (missing.length > 0) {
@@ -2202,11 +2252,9 @@ function renderSync() {
 // ─── Marketplace Placeholder (F-12) ──────────────────────────────
 function renderMarketplace() {
   const wrap = el('div', { className: 'marketplace-placeholder slide-up' });
-  wrap.innerHTML = `
-    <div class="empty-icon" style="margin:0 auto 20px;font-size:48px">🏪</div>
-    <h2>Skill Marketplace</h2>
-    <p style="margin-top:8px">Browse and install community skills from agentskills.io and GitHub. Coming soon in a future update.</p>
-  `;
+  wrap.appendChild(el('div', { className: 'empty-icon', style: { margin: '0 auto 20px', fontSize: '48px' }, textContent: '🏪' }));
+  wrap.appendChild(el('h2', { textContent: 'Skill Marketplace' }));
+  wrap.appendChild(el('p', { style: { marginTop: '8px' }, textContent: 'Browse and install community skills from agentskills.io and GitHub. Coming soon in a future update.' }));
   return wrap;
 }
 
