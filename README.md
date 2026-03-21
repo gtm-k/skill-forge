@@ -42,6 +42,10 @@ SkillForge is a self-contained HTML application that gives you a visual, intuiti
 
 That's it. No install, no build, no dependencies.
 
+### Try It with Demo Skills
+
+Want to explore before creating your own? Point SkillForge at the included [`demo/`](demo/) folder — it contains 5 ready-made skills (code reviewer, commit writer, API doc generator, bug triage, standup prep) you can browse, edit, and experiment with.
+
 ## Browser Compatibility
 
 | Browser | Supported |
