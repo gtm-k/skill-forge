@@ -299,6 +299,26 @@ textarea.code-editor:focus { outline: none; }
 .folder-item { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border: 1px solid var(--border); border-radius: var(--radius); }
 .folder-item .folder-path { font-family: var(--mono); font-size: 13px; flex: 1; overflow: hidden; text-overflow: ellipsis; }
 .folder-item .folder-count { font-size: 12px; color: var(--text-muted); }
+.sync-stats { display: flex; gap: 16px; padding: 10px 14px; background: var(--bg-alt); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 16px; font-size: 13px; color: var(--text-muted); flex-wrap: wrap; }
+.sync-stats span { white-space: nowrap; }
+.sync-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; margin-top: 20px; }
+.sync-column { border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; }
+.sync-column h4 { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: .5px; margin-bottom: 12px; color: var(--text-muted); }
+.sync-skill { display: flex; align-items: center; justify-content: space-between; padding: 6px 8px; border-radius: 4px; margin-bottom: 4px; font-size: 13px; }
+.sync-skill:hover { background: var(--bg-alt); }
+.sync-skill .skill-name { font-family: var(--mono); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; margin-right: 8px; }
+.sync-status-same { color: var(--success, #22c55e); font-size: 12px; white-space: nowrap; }
+.sync-status-diff { color: var(--warn, #f59e0b); font-size: 12px; cursor: pointer; white-space: nowrap; }
+.sync-bulk { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+.sync-diff-view { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; padding: 12px; background: var(--bg-alt); border-radius: var(--radius); border: 1px solid var(--border); }
+.sync-diff-panel { font-family: var(--mono); font-size: 12px; line-height: 1.5; white-space: pre-wrap; max-height: 300px; overflow-y: auto; padding: 8px; background: var(--bg); border-radius: 4px; border: 1px solid var(--border); }
+.sync-diff-panel h5 { font-size: 12px; font-weight: 600; margin-bottom: 6px; font-family: var(--sans, sans-serif); }
+.sync-diff-summary { font-size: 12px; color: var(--text-muted); margin-bottom: 8px; grid-column: 1 / -1; }
+.sync-diff-actions { display: flex; gap: 8px; grid-column: 1 / -1; justify-content: center; }
+.sync-loading { text-align: center; padding: 20px; color: var(--text-muted); font-size: 13px; }
+.sync-remove-btn { background: none; border: none; cursor: pointer; color: var(--text-muted); font-size: 16px; padding: 2px 6px; border-radius: 4px; line-height: 1; }
+.sync-remove-btn:hover { background: var(--bg-alt); color: var(--danger, #ef4444); }
+@media (max-width: 768px) { .sync-grid { grid-template-columns: 1fr; } }
 
 /* Marketplace placeholder */
 .marketplace-placeholder { text-align: center; padding: 60px 24px; }
@@ -2865,31 +2885,149 @@ function renderCollections() {
 }
 
 // ─── Cross-Agent Sync (F-15) ────────────────────────────────────
+async function loadSkillsFromHandle(dirHandle) {
+  const skills = [];
+  try {
+    for await (const entry of dirHandle.values()) {
+      if (entry.kind !== 'directory' || entry.name.startsWith('.')) continue;
+      try {
+        const skillDir = await dirHandle.getDirectoryHandle(entry.name);
+        const fileHandle = await skillDir.getFileHandle('SKILL.md');
+        const file = await fileHandle.getFile();
+        const content = await file.text();
+        const { frontmatter, body } = parseFrontmatter(content);
+        skills.push({
+          dirName: entry.name,
+          dirHandle: skillDir,
+          parentHandle: dirHandle,
+          fileHandle,
+          frontmatter,
+          body,
+          rawContent: content,
+          lineCount: content.split('\n').length,
+        });
+      } catch (e) { /* skip dirs without SKILL.md */ }
+    }
+  } catch (e) { /* ignore read errors */ }
+  return skills;
+}
+
+async function copySkillToPrimary(skill) {
+  try {
+    const newDir = await State.dirHandle.getDirectoryHandle(skill.dirName, { create: true });
+    const fileHandle = await newDir.getFileHandle('SKILL.md', { create: true });
+    const writable = await fileHandle.createWritable();
+    await writable.write(skill.rawContent);
+    await writable.close();
+    await loadSkills();
+    toast('Copied: ' + skill.dirName);
+  } catch (e) {
+    toast('Copy failed: ' + e.message, 'error');
+  }
+}
+
+async function copySkillToFolder(skill, targetHandle) {
+  try {
+    const newDir = await targetHandle.getDirectoryHandle(skill.dirName, { create: true });
+    const fileHandle = await newDir.getFileHandle('SKILL.md', { create: true });
+    const writable = await fileHandle.createWritable();
+    await writable.write(skill.rawContent);
+    await writable.close();
+    toast('Copied: ' + skill.dirName);
+  } catch (e) {
+    toast('Copy failed: ' + e.message, 'error');
+  }
+}
+
+function renderSyncDiffView(primarySkill, secondarySkill, folder) {
+  const container = el('div', { className: 'sync-diff-view' });
+  const pLines = primarySkill.lineCount;
+  const sLines = secondarySkill.lineCount;
+  const delta = Math.abs(pLines - sLines);
+  container.appendChild(el('div', { className: 'sync-diff-summary', textContent: `Primary: ${pLines} lines | Secondary: ${sLines} lines | \u0394${delta} lines` }));
+  const leftPanel = el('div', { className: 'sync-diff-panel' });
+  leftPanel.appendChild(el('h5', { textContent: 'Primary (' + (State.dirHandle?.name || 'primary') + ')' }));
+  leftPanel.appendChild(el('pre', { textContent: primarySkill.rawContent, style: { margin: '0', whiteSpace: 'pre-wrap', fontFamily: 'inherit', fontSize: 'inherit' } }));
+  container.appendChild(leftPanel);
+  const rightPanel = el('div', { className: 'sync-diff-panel' });
+  rightPanel.appendChild(el('h5', { textContent: 'Secondary (' + folder.name + ')' }));
+  rightPanel.appendChild(el('pre', { textContent: secondarySkill.rawContent, style: { margin: '0', whiteSpace: 'pre-wrap', fontFamily: 'inherit', fontSize: 'inherit' } }));
+  container.appendChild(rightPanel);
+  const actions = el('div', { className: 'sync-diff-actions' });
+  const usePrimaryBtn = el('button', { className: 'btn btn-sm btn-secondary', onClick: async () => {
+    await copySkillToFolder(primarySkill, folder.handle);
+    folder.skills = await loadSkillsFromHandle(folder.handle);
+    renderContent();
+  } });
+  usePrimaryBtn.textContent = '\u2190 Use Primary';
+  const useSecondaryBtn = el('button', { className: 'btn btn-sm btn-secondary', onClick: async () => {
+    await copySkillToPrimary(secondarySkill);
+    folder.skills = await loadSkillsFromHandle(folder.handle);
+    renderContent();
+  } });
+  useSecondaryBtn.textContent = 'Use Secondary \u2192';
+  actions.appendChild(usePrimaryBtn);
+  actions.appendChild(useSecondaryBtn);
+  container.appendChild(actions);
+  return container;
+}
+
 function renderSync() {
   const wrap = el('div', { className: 'slide-up' });
   wrap.appendChild(el('h2', { textContent: 'Cross-Agent Sync', style: { marginBottom: '8px', fontSize: '22px' } }));
   wrap.appendChild(el('p', { textContent: 'Open multiple agent skill folders to compare and sync skills between them.', style: { color: 'var(--text-muted)', marginBottom: '20px' } }));
 
+  // Edge case: no primary folder
+  if (!State.dirHandle) {
+    wrap.appendChild(el('p', { textContent: 'Open a skills folder first from the welcome screen.', style: { color: 'var(--warn, #f59e0b)', fontStyle: 'italic' } }));
+    return wrap;
+  }
+
   // Current folder
   const currentDiv = el('div', { className: 'folder-item', style: { marginBottom: '16px' } });
   currentDiv.appendChild(el('span', { style: { fontWeight: '600', fontSize: '14px' }, textContent: 'Primary Folder' }));
-  currentDiv.appendChild(el('span', { className: 'folder-path', textContent: State.dirHandle?.name || 'Not set' }));
+  currentDiv.appendChild(el('span', { className: 'folder-path', textContent: State.dirHandle.name }));
   currentDiv.appendChild(el('span', { className: 'folder-count', textContent: State.skills.length + ' skills' }));
   wrap.appendChild(currentDiv);
 
-  // Add folder
-  const addBtn = el('button', { className: 'btn btn-secondary', onClick: async () => {
+  // Additional folders list with remove buttons
+  if (State.additionalFolders.length > 0) {
+    State.additionalFolders.forEach((folder, fi) => {
+      const item = el('div', { className: 'folder-item', style: { marginBottom: '8px' } });
+      item.appendChild(el('span', { className: 'folder-path', textContent: folder.name }));
+      item.appendChild(el('span', { className: 'folder-count', textContent: folder.skills.length + ' skills' }));
+      const removeBtn = el('button', { className: 'sync-remove-btn', title: 'Remove folder', onClick: () => {
+        State.additionalFolders.splice(fi, 1);
+        renderContent();
+      } });
+      removeBtn.textContent = '\u2715';
+      item.appendChild(removeBtn);
+      wrap.appendChild(item);
+    });
+  }
+
+  // Add folder button
+  const addBtn = el('button', { className: 'btn btn-secondary', style: { marginTop: '8px' }, onClick: async () => {
     try {
       const handle = await window.showDirectoryPicker({ mode: 'readwrite' });
-      // Scan for skills
-      const skills = [];
-      for await (const entry of handle.values()) {
-        if (entry.kind !== 'directory' || entry.name.startsWith('.')) continue;
+      // Edge case: same folder as primary
+      if (handle.name === State.dirHandle.name) {
         try {
-          const dir = await handle.getDirectoryHandle(entry.name);
-          await dir.getFileHandle('SKILL.md');
-          skills.push(entry.name);
-        } catch (e) {}
+          const isSame = await State.dirHandle.isSameEntry(handle);
+          if (isSame) {
+            toast('This is the same folder as your primary', 'error');
+            return;
+          }
+        } catch (e) { /* isSameEntry not supported, allow it */ }
+      }
+      // Show loading
+      const loadingEl = el('div', { className: 'sync-loading', textContent: 'Scanning folder\u2026' });
+      wrap.appendChild(loadingEl);
+      const skills = await loadSkillsFromHandle(handle);
+      if (loadingEl.parentNode) loadingEl.remove();
+      if (skills.length === 0) {
+        toast('No skills found in ' + handle.name, 'error');
+        return;
       }
       State.additionalFolders.push({ handle, name: handle.name, skills });
       renderContent();
@@ -2900,29 +3038,125 @@ function renderSync() {
   addBtn.innerHTML = `${icon('folder')} Add Agent Folder`;
   wrap.appendChild(addBtn);
 
-  // Additional folders
-  if (State.additionalFolders.length > 0) {
-    wrap.appendChild(el('h3', { textContent: 'Additional Folders', style: { marginTop: '24px', marginBottom: '12px' } }));
-    State.additionalFolders.forEach((folder, fi) => {
-      const item = el('div', { className: 'folder-item' });
-      item.appendChild(el('span', { className: 'folder-path', textContent: folder.name }));
-      item.appendChild(el('span', { className: 'folder-count', textContent: folder.skills.length + ' skills' }));
-      // Show skills not in primary
-      const missing = folder.skills.filter(s => !State.skills.some(sk => sk.dirName === s));
-      if (missing.length > 0) {
-        const badge = el('span', { style: { fontSize: '12px', color: 'var(--warn)' }, textContent: `${missing.length} unique` });
-        item.appendChild(badge);
-      }
-      wrap.appendChild(item);
-
-      // Copy buttons
-      if (missing.length > 0) {
-        const copyDiv = el('div', { style: { padding: '8px 0 16px', fontSize: '13px', color: 'var(--text-muted)' } });
-        copyDiv.textContent = `Skills in "${folder.name}" not in primary: ${missing.join(', ')}`;
-        wrap.appendChild(copyDiv);
-      }
+  // Comparison view for each additional folder
+  State.additionalFolders.forEach((folder) => {
+    const primaryNames = new Set(State.skills.map(s => s.dirName));
+    const secondaryNames = new Set(folder.skills.map(s => s.dirName));
+    const onlyPrimary = State.skills.filter(s => !secondaryNames.has(s.dirName));
+    const onlySecondary = folder.skills.filter(s => !primaryNames.has(s.dirName));
+    const shared = State.skills.filter(s => secondaryNames.has(s.dirName)).map(ps => {
+      const ss = folder.skills.find(s => s.dirName === ps.dirName);
+      return { dirName: ps.dirName, primary: ps, secondary: ss, same: ps.rawContent === ss.rawContent };
     });
-  }
+    const diffCount = shared.filter(s => !s.same).length;
+
+    // Summary stats bar
+    const stats = el('div', { className: 'sync-stats', style: { marginTop: '24px' } });
+    stats.appendChild(el('span', { textContent: `${onlyPrimary.length} only in Primary` }));
+    stats.appendChild(el('span', { textContent: '\u00B7' }));
+    stats.appendChild(el('span', { textContent: `${shared.length} shared${diffCount > 0 ? ' (' + diffCount + ' differ)' : ''}` }));
+    stats.appendChild(el('span', { textContent: '\u00B7' }));
+    stats.appendChild(el('span', { textContent: `${onlySecondary.length} only in ${folder.name}` }));
+    wrap.appendChild(stats);
+
+    // Three-column grid
+    const grid = el('div', { className: 'sync-grid' });
+
+    // Column 1: Only in Primary
+    const col1 = el('div', { className: 'sync-column' });
+    col1.appendChild(el('h4', { textContent: 'Only in Primary' }));
+    if (onlyPrimary.length === 0) {
+      col1.appendChild(el('div', { textContent: 'None', style: { fontSize: '13px', color: 'var(--text-muted)', fontStyle: 'italic' } }));
+    } else {
+      onlyPrimary.forEach(skill => {
+        const row = el('div', { className: 'sync-skill' });
+        row.appendChild(el('span', { className: 'skill-name', textContent: skill.dirName }));
+        const copyBtn = el('button', { className: 'btn btn-sm btn-secondary', onClick: async () => {
+          await copySkillToFolder(skill, folder.handle);
+          folder.skills = await loadSkillsFromHandle(folder.handle);
+          renderContent();
+        } });
+        copyBtn.textContent = 'Copy \u2192';
+        row.appendChild(copyBtn);
+        col1.appendChild(row);
+      });
+      const bulk1 = el('div', { className: 'sync-bulk' });
+      const copyAllRight = el('button', { className: 'btn btn-sm btn-secondary', onClick: async () => {
+        for (const skill of onlyPrimary) await copySkillToFolder(skill, folder.handle);
+        folder.skills = await loadSkillsFromHandle(folder.handle);
+        renderContent();
+        toast(`Copied ${onlyPrimary.length} skills to ${folder.name}`);
+      } });
+      copyAllRight.textContent = `Copy All (${onlyPrimary.length}) \u2192`;
+      bulk1.appendChild(copyAllRight);
+      col1.appendChild(bulk1);
+    }
+    grid.appendChild(col1);
+
+    // Column 2: In Both
+    const col2 = el('div', { className: 'sync-column' });
+    col2.appendChild(el('h4', { textContent: 'In Both' }));
+    if (shared.length === 0) {
+      col2.appendChild(el('div', { textContent: 'None', style: { fontSize: '13px', color: 'var(--text-muted)', fontStyle: 'italic' } }));
+    } else {
+      shared.forEach(item => {
+        const row = el('div', { className: 'sync-skill' });
+        row.appendChild(el('span', { className: 'skill-name', textContent: item.dirName }));
+        if (item.same) {
+          row.appendChild(el('span', { className: 'sync-status-same', textContent: '\u2713 Same' }));
+        } else {
+          const diffBtn = el('span', { className: 'sync-status-diff', onClick: () => {
+            // Toggle diff view
+            const existing = row.nextElementSibling;
+            if (existing && existing.classList.contains('sync-diff-view')) {
+              existing.remove();
+            } else {
+              const diffView = renderSyncDiffView(item.primary, item.secondary, folder);
+              row.after(diffView);
+            }
+          } });
+          diffBtn.textContent = '\u2260 Different';
+          row.appendChild(diffBtn);
+        }
+        col2.appendChild(row);
+      });
+    }
+    grid.appendChild(col2);
+
+    // Column 3: Only in Secondary
+    const col3 = el('div', { className: 'sync-column' });
+    col3.appendChild(el('h4', { textContent: 'Only in ' + folder.name }));
+    if (onlySecondary.length === 0) {
+      col3.appendChild(el('div', { textContent: 'None', style: { fontSize: '13px', color: 'var(--text-muted)', fontStyle: 'italic' } }));
+    } else {
+      onlySecondary.forEach(skill => {
+        const row = el('div', { className: 'sync-skill' });
+        row.appendChild(el('span', { className: 'skill-name', textContent: skill.dirName }));
+        const copyBtn = el('button', { className: 'btn btn-sm btn-secondary', onClick: async () => {
+          await copySkillToPrimary(skill);
+          folder.skills = await loadSkillsFromHandle(folder.handle);
+          renderContent();
+        } });
+        copyBtn.textContent = '\u2190 Copy';
+        row.appendChild(copyBtn);
+        col3.appendChild(row);
+      });
+      const bulk3 = el('div', { className: 'sync-bulk' });
+      const copyAllLeft = el('button', { className: 'btn btn-sm btn-secondary', onClick: async () => {
+        for (const skill of onlySecondary) await copySkillToPrimary(skill);
+        folder.skills = await loadSkillsFromHandle(folder.handle);
+        renderContent();
+        toast(`Copied ${onlySecondary.length} skills to primary`);
+      } });
+      copyAllLeft.textContent = `\u2190 Copy All (${onlySecondary.length})`;
+      bulk3.appendChild(copyAllLeft);
+      col3.appendChild(bulk3);
+    }
+    grid.appendChild(col3);
+
+    wrap.appendChild(grid);
+  });
+
   return wrap;
 }
 
