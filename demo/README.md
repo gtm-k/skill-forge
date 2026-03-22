@@ -1,10 +1,10 @@
 # Demo Skills
 
-This folder contains sample skills you can use to try out SkillForge without creating your own first.
+This folder contains sample skills you can use to try out skill-forge without creating your own first.
 
 ## How to Use
 
-1. Open `SkillForge.html` in your browser
+1. Open `skill-forge.html` in your browser
 2. Click **Open Skills Folder**
 3. Select this `demo/` folder
 4. Browse, edit, and experiment with the sample skills

@@ -3,7 +3,7 @@ name: bug-report-triage
 description: Analyze bug reports to assess severity, identify root cause, and suggest investigation steps. Use when new bug reports arrive or need prioritization.
 license: Apache-2.0
 metadata:
-  author: SkillForge Demo
+  author: skill-forge Demo
   version: "1.0"
   tags: support, triage, productivity
 ---

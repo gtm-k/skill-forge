@@ -3,7 +3,7 @@ name: daily-standup-prep
 description: Generate concise standup updates from recent work activity, commits, and task boards. Use before daily standup meetings.
 license: Apache-2.0
 metadata:
-  author: SkillForge Demo
+  author: skill-forge Demo
   version: "1.0"
   tags: productivity, meetings, agile
 allowed-tools: Bash Read

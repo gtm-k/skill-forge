@@ -1,4 +1,4 @@
-# SkillForge CI — Quality & Security Checks
+# skill-forge CI — Quality & Security Checks
 # Runs on: manual trigger (workflow_dispatch) and release tags only.
 # Does NOT run on every push or PR to conserve CI minutes.
 
@@ -34,8 +34,8 @@ jobs:
       # --- JavaScript Syntax Validation ---
       - name: JS Syntax Check
         run: |
-          echo "::group::Extracting JS from SkillForge.html"
-          sed -n '/<script>/,/<\/script>/p' SkillForge.html | sed '1d;$d' > /tmp/skillforge.js
+          echo "::group::Extracting JS from skill-forge.html"
+          sed -n '/<script>/,/<\/script>/p' skill-forge.html | sed '1d;$d' > /tmp/skillforge.js
           echo "::endgroup::"
           echo "::group::Running Node.js syntax check"
           node --check /tmp/skillforge.js
@@ -47,19 +47,19 @@ jobs:
         run: |
           echo "::group::Validating HTML structure"
           # Check for required elements
-          grep -q '<!DOCTYPE html>' SkillForge.html || { echo "❌ Missing DOCTYPE"; exit 1; }
-          grep -q '<html lang=' SkillForge.html || { echo "❌ Missing html lang attribute"; exit 1; }
-          grep -q '<meta charset=' SkillForge.html || { echo "❌ Missing charset meta"; exit 1; }
-          grep -q '<meta name="viewport"' SkillForge.html || { echo "❌ Missing viewport meta"; exit 1; }
-          grep -q '</html>' SkillForge.html || { echo "❌ Missing closing html tag"; exit 1; }
+          grep -q '<!DOCTYPE html>' skill-forge.html || { echo "❌ Missing DOCTYPE"; exit 1; }
+          grep -q '<html lang=' skill-forge.html || { echo "❌ Missing html lang attribute"; exit 1; }
+          grep -q '<meta charset=' skill-forge.html || { echo "❌ Missing charset meta"; exit 1; }
+          grep -q '<meta name="viewport"' skill-forge.html || { echo "❌ Missing viewport meta"; exit 1; }
+          grep -q '</html>' skill-forge.html || { echo "❌ Missing closing html tag"; exit 1; }
 
           # Verify it's a single-file app (no external script/link tags)
-          EXTERNAL_SCRIPTS=$(grep -cE '<script[^>]+src=' SkillForge.html || true)
+          EXTERNAL_SCRIPTS=$(grep -cE '<script[^>]+src=' skill-forge.html || true)
           if [ "$EXTERNAL_SCRIPTS" -gt 0 ]; then
             echo "❌ Found external script tags — app must be self-contained"
             exit 1
           fi
-          EXTERNAL_LINKS=$(grep -cE '<link[^>]+href=.*\.css' SkillForge.html || true)
+          EXTERNAL_LINKS=$(grep -cE '<link[^>]+href=.*\.css' skill-forge.html || true)
           if [ "$EXTERNAL_LINKS" -gt 0 ]; then
             echo "❌ Found external CSS links — app must be self-contained"
             exit 1
@@ -72,9 +72,9 @@ jobs:
       - name: File Size Budget
         run: |
           MAX_KB=500
-          SIZE_BYTES=$(stat --format=%s SkillForge.html)
+          SIZE_BYTES=$(stat --format=%s skill-forge.html)
           SIZE_KB=$((SIZE_BYTES / 1024))
-          echo "SkillForge.html: ${SIZE_KB} KB (budget: ${MAX_KB} KB)"
+          echo "skill-forge.html: ${SIZE_KB} KB (budget: ${MAX_KB} KB)"
           if [ "$SIZE_KB" -gt "$MAX_KB" ]; then
             echo "❌ File size ${SIZE_KB} KB exceeds ${MAX_KB} KB budget"
             exit 1
@@ -118,30 +118,30 @@ jobs:
           echo "::group::Scanning for security anti-patterns"
           ISSUES=0
           # Check for eval() usage
-          if grep -n 'eval(' SkillForge.html | grep -v '// ' | grep -v '<!--'; then
+          if grep -n 'eval(' skill-forge.html | grep -v '// ' | grep -v '<!--'; then
             echo "⚠️  eval() usage detected"
             ISSUES=$((ISSUES + 1))
           fi
           # Check for innerHTML with unsanitized template literals from user input
           # (informational — not all innerHTML is dangerous)
-          INNERHTML_COUNT=$(grep -c 'innerHTML' SkillForge.html || true)
+          INNERHTML_COUNT=$(grep -c 'innerHTML' skill-forge.html || true)
           echo "ℹ️  innerHTML usage count: ${INNERHTML_COUNT} (review for XSS vectors)"
           # Check that javascript: protocol is blocked in link renderer
-          if grep -q "safeUrl" SkillForge.html; then
+          if grep -q "safeUrl" skill-forge.html; then
             echo "✅ Link sanitizer (safeUrl) is present"
           else
             echo "❌ Missing link URL sanitizer"
             ISSUES=$((ISSUES + 1))
           fi
           # Check for prototype pollution guards
-          if grep -q "DANGEROUS_KEYS" SkillForge.html; then
+          if grep -q "DANGEROUS_KEYS" skill-forge.html; then
             echo "✅ Prototype pollution guard (DANGEROUS_KEYS) is present"
           else
             echo "❌ Missing prototype pollution guard"
             ISSUES=$((ISSUES + 1))
           fi
           # Check for HTTPS-only import
-          if grep -q "parsed.protocol !== 'https:'" SkillForge.html; then
+          if grep -q "parsed.protocol !== 'https:'" skill-forge.html; then
             echo "✅ HTTPS-only import validation is present"
           else
             echo "❌ Missing HTTPS-only import check"
@@ -159,27 +159,27 @@ jobs:
         run: |
           echo "::group::Checking accessibility attributes"
           # Count ARIA attributes
-          ARIA_COUNT=$(grep -co 'aria-' SkillForge.html || true)
-          ROLE_COUNT=$(grep -co 'role=' SkillForge.html || true)
+          ARIA_COUNT=$(grep -co 'aria-' skill-forge.html || true)
+          ROLE_COUNT=$(grep -co 'role=' skill-forge.html || true)
           echo "ARIA attributes: ${ARIA_COUNT}"
           echo "role attributes: ${ROLE_COUNT}"
           # Check for essential ARIA patterns
-          grep -q 'aria-label' SkillForge.html || { echo "❌ No aria-label found"; exit 1; }
-          grep -q 'aria-live' SkillForge.html || { echo "⚠️  No aria-live regions found"; }
-          grep -q 'role="dialog"' SkillForge.html || { echo "⚠️  No dialog roles found"; }
-          grep -q ':focus-visible' SkillForge.html || { echo "❌ No :focus-visible styles"; exit 1; }
+          grep -q 'aria-label' skill-forge.html || { echo "❌ No aria-label found"; exit 1; }
+          grep -q 'aria-live' skill-forge.html || { echo "⚠️  No aria-live regions found"; }
+          grep -q 'role="dialog"' skill-forge.html || { echo "⚠️  No dialog roles found"; }
+          grep -q ':focus-visible' skill-forge.html || { echo "❌ No :focus-visible styles"; exit 1; }
           echo "✅ Accessibility baseline met"
           echo "::endgroup::"
 
       # --- Build Summary ---
       - name: Summary
         run: |
-          SIZE_BYTES=$(stat --format=%s SkillForge.html)
+          SIZE_BYTES=$(stat --format=%s skill-forge.html)
           SIZE_KB=$((SIZE_BYTES / 1024))
-          LINES=$(wc -l < SkillForge.html)
-          JS_LINES=$(sed -n '/<script>/,/<\/script>/p' SkillForge.html | wc -l)
-          CSS_LINES=$(sed -n '/<style>/,/<\/style>/p' SkillForge.html | wc -l)
-          echo "## SkillForge CI Summary" >> $GITHUB_STEP_SUMMARY
+          LINES=$(wc -l < skill-forge.html)
+          JS_LINES=$(sed -n '/<script>/,/<\/script>/p' skill-forge.html | wc -l)
+          CSS_LINES=$(sed -n '/<style>/,/<\/style>/p' skill-forge.html | wc -l)
+          echo "## skill-forge CI Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY

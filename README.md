@@ -1,6 +1,6 @@
-# SkillForge
+# skill-forge
 
-[![CI](https://github.com/gtm-k/SkillForge/actions/workflows/ci.yml/badge.svg)](https://github.com/gtm-k/SkillForge/actions/workflows/ci.yml)
+[![CI](https://github.com/gtm-k/skill-forge/actions/workflows/ci.yml/badge.svg)](https://github.com/gtm-k/skill-forge/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Single File](https://img.shields.io/badge/Single_File-HTML-orange.svg)](#)
 [![Size](https://img.shields.io/badge/Size-~181_KB-green.svg)](#technical-details)
@@ -12,7 +12,7 @@
 
 **A zero-install, single-file AI agent skill manager.**
 
-SkillForge is a self-contained HTML application that gives you a visual, intuitive interface for creating, editing, organizing, and deploying AI agent skills. It reads and writes directly to your local skills folder using the browser's File System Access API — no backend, no account, no npm, and no command line.
+skill-forge is a self-contained HTML application that gives you a visual, intuitive interface for creating, editing, organizing, and deploying AI agent skills. It reads and writes directly to your local skills folder using the browser's File System Access API — no backend, no account, no npm, and no command line.
 
 ## Features
 
@@ -35,7 +35,7 @@ SkillForge is a self-contained HTML application that gives you a visual, intuiti
 
 ## Usage
 
-1. **Download** `SkillForge.html`
+1. **Download `skill-forge.html`
 2. **Double-click** to open it in your browser
 3. Click **Open Skills Folder** and select your agent's skills directory
 4. Start browsing, creating, and editing skills
@@ -44,7 +44,7 @@ That's it. No install, no build, no dependencies.
 
 ### Try It with Demo Skills
 
-Want to explore before creating your own? Point SkillForge at the included [`demo/`](demo/) folder — it contains 5 ready-made skills (code reviewer, commit writer, API doc generator, bug triage, standup prep) you can browse, edit, and experiment with.
+Want to explore before creating your own? Point skill-forge at the included [`demo/`](demo/) folder — it contains 5 ready-made skills (code reviewer, commit writer, API doc generator, bug triage, standup prep) you can browse, edit, and experiment with.
 
 ## Browser Compatibility
 
@@ -70,7 +70,7 @@ Want to explore before creating your own? Point SkillForge at the included [`dem
 
 ## Skill Format Reference
 
-SkillForge reads and writes the [agentskills.io](https://agentskills.io/specification) open standard:
+skill-forge reads and writes the [agentskills.io](https://agentskills.io/specification) open standard:
 
 ```
 skill-name/
@@ -141,4 +141,4 @@ To run CI manually: **Actions** → **CI** → **Run workflow**.
 
 Apache License 2.0 — see [LICENSE](https://www.apache.org/licenses/LICENSE-2.0)
 
-Copyright 2026 SkillForge Contributors
+Copyright 2026 skill-forge Contributors

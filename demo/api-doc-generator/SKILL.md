@@ -3,7 +3,7 @@ name: api-doc-generator
 description: Generate structured API documentation from source code, OpenAPI specs, or endpoint descriptions. Use when creating or updating API reference docs.
 license: Apache-2.0
 metadata:
-  author: SkillForge Demo
+  author: skill-forge Demo
   version: "1.0"
   tags: documentation, api, development
 allowed-tools: Bash Read Write

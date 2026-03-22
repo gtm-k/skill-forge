@@ -3,7 +3,7 @@ name: code-reviewer
 description: Review code changes for quality, security vulnerabilities, and adherence to project standards. Use when reviewing pull requests or code diffs.
 license: Apache-2.0
 metadata:
-  author: SkillForge Demo
+  author: skill-forge Demo
   version: "1.0"
   tags: development, review, security
 allowed-tools: Bash Read

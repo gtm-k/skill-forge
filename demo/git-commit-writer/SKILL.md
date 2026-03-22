@@ -3,7 +3,7 @@ name: git-commit-writer
 description: Generate clear, conventional commit messages from staged changes. Use when committing code to produce well-structured git history.
 license: Apache-2.0
 metadata:
-  author: SkillForge Demo
+  author: skill-forge Demo
   version: "1.0"
   tags: development, git, productivity
 allowed-tools: Bash

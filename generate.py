@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Generate SkillForge.html — a complete single-file AI Agent Skill Manager.
-Copyright 2026 SkillForge Contributors — Apache License 2.0
+Generate skill-forge.html — a complete single-file AI Agent Skill Manager.
+Copyright 2026 skill-forge Contributors — Apache License 2.0
 """
 
 import textwrap
@@ -332,7 +332,7 @@ def build_html():
 
     # ── JavaScript ────────────────────────────────────────────────────────
     js = textwrap.dedent(r'''
-    // Copyright 2026 SkillForge Contributors
+    // Copyright 2026 skill-forge Contributors
     // Licensed under the Apache License, Version 2.0
     // https://www.apache.org/licenses/LICENSE-2.0
 
@@ -1166,7 +1166,7 @@ def build_html():
       const inner = el('div', { className: 'welcome-inner' });
       inner.innerHTML = `
         <div class="welcome-logo">SF</div>
-        <h1>SkillForge</h1>
+        <h1>skill-forge</h1>
         <p>Manage your AI agent skills visually. Create, edit, organize, and deploy skills from your browser — no terminal needed.</p>
         <div class="welcome-paths">
           <strong>Common skill folder locations:</strong>
@@ -1197,7 +1197,7 @@ def build_html():
       sidebar.innerHTML = `
         <div class="sidebar-header">
           <div class="sidebar-logo">SF</div>
-          <div class="sidebar-title">SkillForge</div>
+          <div class="sidebar-title">skill-forge</div>
         </div>
       `;
       const nav = el('div', { className: 'sidebar-nav' });
@@ -1228,7 +1228,7 @@ def build_html():
       const folderBtn = el('button', { className: 'btn btn-ghost btn-sm', onClick: openFolder });
       folderBtn.innerHTML = `${icon('folder', 14)} Change Folder`;
       footer.appendChild(folderBtn);
-      footer.appendChild(el('span', { textContent: 'SkillForge v1.0 — Apache 2.0', style: { fontSize: '11px' } }));
+      footer.appendChild(el('span', { textContent: 'skill-forge v1.0 — Apache 2.0', style: { fontSize: '11px' } }));
       sidebar.appendChild(footer);
       return sidebar;
     }
@@ -2044,7 +2044,7 @@ def build_html():
 
       // About
       wrap.appendChild(el('h3', { textContent: 'About', style: { marginTop: '24px', marginBottom: '8px' } }));
-      wrap.appendChild(el('p', { textContent: 'SkillForge v1.0 — A zero-install, single-file AI agent skill manager.', style: { color: 'var(--text-muted)', fontSize: '14px' } }));
+      wrap.appendChild(el('p', { textContent: 'skill-forge v1.0 — A zero-install, single-file AI agent skill manager.', style: { color: 'var(--text-muted)', fontSize: '14px' } }));
       wrap.appendChild(el('p', { textContent: 'Licensed under Apache License 2.0', style: { color: 'var(--text-muted)', fontSize: '13px' } }));
 
       return wrap;
@@ -2250,8 +2250,8 @@ def build_html():
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="description" content="SkillForge — A zero-install, single-file AI agent skill manager">
-<title>SkillForge — AI Agent Skill Manager</title>
+<meta name="description" content="skill-forge — A zero-install, single-file AI agent skill manager">
+<title>skill-forge — AI Agent Skill Manager</title>
 <style>
 {css}
 </style>
@@ -2267,7 +2267,7 @@ def build_html():
 
 if __name__ == '__main__':
     html = build_html()
-    with open('SkillForge.html', 'w', encoding='utf-8') as f:
+    with open('skill-forge.html', 'w', encoding='utf-8') as f:
         f.write(html)
     size = len(html.encode('utf-8'))
-    print(f'Generated SkillForge.html — {size:,} bytes ({size/1024:.1f} KB)')
+    print(f'Generated skill-forge.html — {size:,} bytes ({size/1024:.1f} KB)')
