@@ -757,7 +757,7 @@ function validateSkill(skill) {
   }
 
   // Unknown agent_compatibility warning
-  const compat = fm.metadata?.agent_compatibility;
+  const compat = fm.metadata?.agent_compatibility || fm.agent_compatibility;
   if (compat && Array.isArray(compat)) {
     const unknown = compat.filter(a => !KNOWN_AGENTS.has(a));
     if (unknown.length > 0) {
@@ -1179,7 +1179,8 @@ function getFilteredSkills() {
   if (State.filterTag) {
     skills = skills.filter(s => {
       const meta = s.frontmatter.metadata;
-      if (meta && meta.tags) return meta.tags.includes(State.filterTag);
+      const tags = meta?.tags || s.frontmatter.tags;
+      if (tags) return Array.isArray(tags) ? tags.includes(State.filterTag) : String(tags).split(',').some(t => t.trim() === State.filterTag);
       return false;
     });
   }
@@ -1197,10 +1198,10 @@ function getFilteredSkills() {
 function getAllTags() {
   const tags = new Set();
   State.skills.forEach(s => {
-    const meta = s.frontmatter.metadata;
-    if (meta && meta.tags) {
-      if (typeof meta.tags === 'string') meta.tags.split(',').forEach(t => tags.add(t.trim()));
-      else if (Array.isArray(meta.tags)) meta.tags.forEach(t => tags.add(t));
+    const t = s.frontmatter.metadata?.tags || s.frontmatter.tags;
+    if (t) {
+      if (typeof t === 'string') t.split(',').forEach(tag => { if (tag.trim()) tags.add(tag.trim()); });
+      else if (Array.isArray(t)) t.forEach(tag => { if (tag) tags.add(tag); });
     }
   });
   return [...tags];
@@ -1549,7 +1550,7 @@ function renderSkillCard(skill) {
 
   // Agent icons
   const badges = el('span', { className: 'agent-badges' });
-  const compat = skill.frontmatter.metadata?.agent_compatibility;
+  const compat = skill.frontmatter.metadata?.agent_compatibility || skill.frontmatter.agent_compatibility;
   if (compat && Array.isArray(compat) && compat.length > 0) {
     compat.forEach(agentId => { badges.innerHTML += agentIcon(agentId, 20); });
   } else {
@@ -2053,7 +2054,7 @@ async function renderHistoryPanel(skill, body) {
 
 function renderAgentsPanel(skill) {
   const wrap = el('div');
-  const compat = skill.frontmatter.metadata?.agent_compatibility;
+  const compat = skill.frontmatter.metadata?.agent_compatibility || skill.frontmatter.agent_compatibility;
   if (!compat || !Array.isArray(compat) || compat.length === 0) {
     wrap.appendChild(el('p', { textContent: 'This skill is compatible with all agents that support the agentskills.io standard:', style: { marginBottom: '16px', color: 'var(--text-muted)' } }));
   } else {
