@@ -176,6 +176,8 @@ a:hover { text-decoration: underline; }
 .editor-divider:hover { background: var(--accent); }
 textarea.code-editor { flex: 1; padding: 16px; font-family: var(--mono); font-size: 13px; line-height: 1.6; border: none; resize: none; background: var(--bg); color: var(--text); tab-size: 2; }
 textarea.code-editor:focus { outline: none; }
+.editor-with-lines { display: flex; position: relative; flex: 1; overflow: hidden; }
+.line-numbers { padding: 16px 8px 16px 12px; font-family: var(--mono); font-size: 13px; line-height: 1.6; color: var(--text-muted); text-align: right; user-select: none; border-right: 1px solid var(--border); background: var(--surface, var(--bg-alt)); min-width: 40px; overflow: hidden; opacity: 0.6; }
 .preview-pane { flex: 1; overflow-y: auto; padding: 20px; }
 .preview-pane h1 { font-size: 24px; margin-bottom: 12px; color: var(--text-heading); }
 .preview-pane h2 { font-size: 20px; margin: 20px 0 8px; color: var(--text-heading); }
@@ -624,6 +626,8 @@ const State = {
   filterAgent: '',
   bulkMode: false,
   editorDirty: false,
+  editorHistory: [],
+  editorHistoryIndex: -1,
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────
@@ -1070,25 +1074,25 @@ async function copyToClipboard(text) {
 
 // ─── Templates ───────────────────────────────────────────────────
 const TEMPLATES = [
-  { id: 'code-reviewer', icon: '🔍', name: 'Code Reviewer', category: 'Development', desc: 'Review code for quality, security, and standards',
-    content: `---\nname: code-reviewer\ndescription: Review code for quality, security, and standards. Use when reviewing pull requests or code changes.\n---\n# Code Reviewer\n\n## Process\n1. Read the code changes carefully\n2. Check for security vulnerabilities (injection, XSS, etc.)\n3. Verify code follows project conventions\n4. Look for performance issues\n5. Check error handling completeness\n\n## Output Format\n- **Summary**: Brief overview of findings\n- **Issues**: List each issue with severity (Critical/Major/Minor)\n- **Suggestions**: Improvement recommendations\n- **Verdict**: Approve / Request Changes\n` },
-  { id: 'documentation-writer', icon: '📝', name: 'Documentation Writer', category: 'Development', desc: 'Generate structured docs from code or specs',
-    content: `---\nname: documentation-writer\ndescription: Generate structured documentation from code or specifications. Use when creating README files, API docs, or guides.\n---\n# Documentation Writer\n\n## Process\n1. Analyze the source material (code, spec, or outline)\n2. Identify the target audience\n3. Structure content with clear hierarchy\n4. Write concise, accurate descriptions\n5. Include code examples where helpful\n\n## Output Format\n- Title and overview\n- Installation/setup instructions\n- Usage examples\n- API reference (if applicable)\n- Troubleshooting section\n` },
-  { id: 'pr-description-writer', icon: '🔀', name: 'PR Description Writer', category: 'Development', desc: 'Write PR summaries from git diffs',
-    content: `---\nname: pr-description-writer\ndescription: Write clear pull request descriptions from git diffs. Use when creating or updating pull requests.\n---\n# PR Description Writer\n\n## Process\n1. Analyze the git diff to understand changes\n2. Identify the motivation and context\n3. Summarize what changed and why\n4. Note any breaking changes or migration steps\n\n## Output Format\n## Summary\n- Bullet points of key changes\n\n## Motivation\nWhy this change was needed\n\n## Testing\n- How to verify the changes\n\n## Breaking Changes\nList any breaking changes (or "None")\n` },
-  { id: 'research-synthesizer', icon: '🔬', name: 'Research Synthesizer', category: 'Research', desc: 'Gather and summarize info on a topic',
-    content: `---\nname: research-synthesizer\ndescription: Research and synthesize information on a given topic. Use when gathering background information or conducting analysis.\n---\n# Research Synthesizer\n\n## Process\n1. Identify the key question or topic\n2. Gather relevant sources and data\n3. Identify common themes and patterns\n4. Note conflicting information\n5. Synthesize into actionable insights\n\n## Output Format\n- **Key Findings**: Top 3-5 insights\n- **Evidence**: Supporting data for each finding\n- **Gaps**: What information is missing\n- **Recommendations**: Suggested next steps\n` },
-  { id: 'meeting-notes-formatter', icon: '📋', name: 'Meeting Notes Formatter', category: 'Productivity', desc: 'Convert raw notes into structured summaries',
-    content: `---\nname: meeting-notes-formatter\ndescription: Convert raw meeting notes into structured summaries. Use after meetings to create clear, actionable records.\n---\n# Meeting Notes Formatter\n\n## Process\n1. Parse the raw notes for key information\n2. Identify decisions made\n3. Extract action items with owners\n4. Summarize discussion topics\n\n## Output Format\n- **Date & Attendees**\n- **Summary**: 2-3 sentence overview\n- **Decisions**: Numbered list of decisions\n- **Action Items**: Task, owner, deadline\n- **Discussion Notes**: Key points discussed\n- **Next Meeting**: Date and agenda items\n` },
-  { id: 'email-drafter', icon: '✉️', name: 'Email Drafter', category: 'Communication', desc: 'Draft professional emails from bullet points',
-    content: `---\nname: email-drafter\ndescription: Draft professional emails from bullet points or rough notes. Use when composing important emails or responses.\n---\n# Email Drafter\n\n## Process\n1. Understand the context and recipient\n2. Determine the appropriate tone (formal, friendly, urgent)\n3. Structure the email with clear purpose\n4. Keep paragraphs short and scannable\n5. End with a clear call to action\n\n## Output Format\n- Subject line\n- Greeting\n- Body (2-4 short paragraphs)\n- Call to action\n- Sign-off\n` },
-  { id: 'data-analyst', icon: '📊', name: 'Data Analyst', category: 'Data', desc: 'Clean, analyze, and summarize CSV/JSON data',
-    content: `---\nname: data-analyst\ndescription: Clean, analyze, and summarize CSV or JSON data. Use when working with datasets or generating reports.\n---\n# Data Analyst\n\n## Process\n1. Examine the data structure and quality\n2. Clean and normalize data as needed\n3. Calculate key statistics and metrics\n4. Identify trends and patterns\n5. Generate visualizations if helpful\n\n## Output Format\n- **Data Summary**: Shape, columns, types\n- **Key Metrics**: Important statistics\n- **Findings**: Notable patterns or anomalies\n- **Recommendations**: Data-driven suggestions\n` },
-  { id: 'brand-voice-writer', icon: '🎨', name: 'Brand Voice Writer', category: 'Content', desc: 'Write content following custom brand guidelines',
-    content: `---\nname: brand-voice-writer\ndescription: Write content following custom brand voice guidelines. Use when creating marketing copy, social posts, or brand content.\n---\n# Brand Voice Writer\n\n## Process\n1. Review the brand voice guidelines\n2. Understand the target audience\n3. Match the tone, vocabulary, and style\n4. Write content that feels authentic to the brand\n5. Check against brand dos and don'ts\n\n## Output Format\n- Draft content in brand voice\n- Notes on brand alignment\n- Alternative versions if requested\n` },
-  { id: 'weekly-standup-generator', icon: '📅', name: 'Weekly Standup Generator', category: 'Productivity', desc: 'Auto-generate standup summaries from work logs',
-    content: `---\nname: weekly-standup-generator\ndescription: Generate standup summaries from work logs, commits, or task lists. Use to prepare for standup meetings.\n---\n# Weekly Standup Generator\n\n## Process\n1. Review recent work activity (commits, tasks, notes)\n2. Categorize into completed, in-progress, and blocked items\n3. Highlight key achievements\n4. Identify blockers and dependencies\n\n## Output Format\n### Done\n- Completed items this period\n\n### In Progress\n- Current work items with status\n\n### Blocked\n- Items needing help or waiting on others\n\n### Next\n- Planned items for next period\n` },
-  { id: 'blank', icon: '📄', name: 'Blank (Advanced)', category: 'Meta', desc: 'Empty template with frontmatter only',
+  { id: 'code-reviewer', icon: '🔍', name: 'Code Reviewer', category: 'Development', desc: 'Review code for quality, security, and standards', bestFor: 'Pull request reviews, code audits',
+    content: `---\nname: code-reviewer\ndescription: Review code for quality, security, and standards. Use when reviewing pull requests or code changes.\nmetadata:\n  difficulty: intermediate\n---\n# Code Reviewer\n\n## Process\n1. Read the code changes carefully\n2. Check for security vulnerabilities (injection, XSS, etc.)\n3. Verify code follows project conventions\n4. Look for performance issues\n5. Check error handling completeness\n\n## Output Format\n- **Summary**: Brief overview of findings\n- **Issues**: List each issue with severity (Critical/Major/Minor)\n- **Suggestions**: Improvement recommendations\n- **Verdict**: Approve / Request Changes\n` },
+  { id: 'documentation-writer', icon: '📝', name: 'Documentation Writer', category: 'Development', desc: 'Generate structured docs from code or specs', bestFor: 'README files, API docs, user guides',
+    content: `---\nname: documentation-writer\ndescription: Generate structured documentation from code or specifications. Use when creating README files, API docs, or guides.\nmetadata:\n  difficulty: beginner\n---\n# Documentation Writer\n\n## Process\n1. Analyze the source material (code, spec, or outline)\n2. Identify the target audience\n3. Structure content with clear hierarchy\n4. Write concise, accurate descriptions\n5. Include code examples where helpful\n\n## Output Format\n- Title and overview\n- Installation/setup instructions\n- Usage examples\n- API reference (if applicable)\n- Troubleshooting section\n` },
+  { id: 'pr-description-writer', icon: '🔀', name: 'PR Description Writer', category: 'Development', desc: 'Write PR summaries from git diffs', bestFor: 'Pull requests, changelogs',
+    content: `---\nname: pr-description-writer\ndescription: Write clear pull request descriptions from git diffs. Use when creating or updating pull requests.\nmetadata:\n  difficulty: beginner\n---\n# PR Description Writer\n\n## Process\n1. Analyze the git diff to understand changes\n2. Identify the motivation and context\n3. Summarize what changed and why\n4. Note any breaking changes or migration steps\n\n## Output Format\n## Summary\n- Bullet points of key changes\n\n## Motivation\nWhy this change was needed\n\n## Testing\n- How to verify the changes\n\n## Breaking Changes\nList any breaking changes (or "None")\n` },
+  { id: 'research-synthesizer', icon: '🔬', name: 'Research Synthesizer', category: 'Research', desc: 'Gather and summarize info on a topic', bestFor: 'Background research, competitive analysis',
+    content: `---\nname: research-synthesizer\ndescription: Research and synthesize information on a given topic. Use when gathering background information or conducting analysis.\nmetadata:\n  difficulty: intermediate\n---\n# Research Synthesizer\n\n## Process\n1. Identify the key question or topic\n2. Gather relevant sources and data\n3. Identify common themes and patterns\n4. Note conflicting information\n5. Synthesize into actionable insights\n\n## Output Format\n- **Key Findings**: Top 3-5 insights\n- **Evidence**: Supporting data for each finding\n- **Gaps**: What information is missing\n- **Recommendations**: Suggested next steps\n` },
+  { id: 'meeting-notes-formatter', icon: '📋', name: 'Meeting Notes Formatter', category: 'Productivity', desc: 'Convert raw notes into structured summaries', bestFor: 'Post-meeting summaries, action tracking',
+    content: `---\nname: meeting-notes-formatter\ndescription: Convert raw meeting notes into structured summaries. Use after meetings to create clear, actionable records.\nmetadata:\n  difficulty: beginner\n---\n# Meeting Notes Formatter\n\n## Process\n1. Parse the raw notes for key information\n2. Identify decisions made\n3. Extract action items with owners\n4. Summarize discussion topics\n\n## Output Format\n- **Date & Attendees**\n- **Summary**: 2-3 sentence overview\n- **Decisions**: Numbered list of decisions\n- **Action Items**: Task, owner, deadline\n- **Discussion Notes**: Key points discussed\n- **Next Meeting**: Date and agenda items\n` },
+  { id: 'email-drafter', icon: '✉️', name: 'Email Drafter', category: 'Communication', desc: 'Draft professional emails from bullet points', bestFor: 'Professional emails, client communication',
+    content: `---\nname: email-drafter\ndescription: Draft professional emails from bullet points or rough notes. Use when composing important emails or responses.\nmetadata:\n  difficulty: beginner\n---\n# Email Drafter\n\n## Process\n1. Understand the context and recipient\n2. Determine the appropriate tone (formal, friendly, urgent)\n3. Structure the email with clear purpose\n4. Keep paragraphs short and scannable\n5. End with a clear call to action\n\n## Output Format\n- Subject line\n- Greeting\n- Body (2-4 short paragraphs)\n- Call to action\n- Sign-off\n` },
+  { id: 'data-analyst', icon: '📊', name: 'Data Analyst', category: 'Data', desc: 'Clean, analyze, and summarize CSV/JSON data', bestFor: 'CSV/JSON analysis, report generation',
+    content: `---\nname: data-analyst\ndescription: Clean, analyze, and summarize CSV or JSON data. Use when working with datasets or generating reports.\nmetadata:\n  difficulty: intermediate\n---\n# Data Analyst\n\n## Process\n1. Examine the data structure and quality\n2. Clean and normalize data as needed\n3. Calculate key statistics and metrics\n4. Identify trends and patterns\n5. Generate visualizations if helpful\n\n## Output Format\n- **Data Summary**: Shape, columns, types\n- **Key Metrics**: Important statistics\n- **Findings**: Notable patterns or anomalies\n- **Recommendations**: Data-driven suggestions\n` },
+  { id: 'brand-voice-writer', icon: '🎨', name: 'Brand Voice Writer', category: 'Content', desc: 'Write content following custom brand guidelines', bestFor: 'Marketing copy, social media content',
+    content: `---\nname: brand-voice-writer\ndescription: Write content following custom brand voice guidelines. Use when creating marketing copy, social posts, or brand content.\nmetadata:\n  difficulty: advanced\n---\n# Brand Voice Writer\n\n## Process\n1. Review the brand voice guidelines\n2. Understand the target audience\n3. Match the tone, vocabulary, and style\n4. Write content that feels authentic to the brand\n5. Check against brand dos and don'ts\n\n## Output Format\n- Draft content in brand voice\n- Notes on brand alignment\n- Alternative versions if requested\n` },
+  { id: 'weekly-standup-generator', icon: '📅', name: 'Weekly Standup Generator', category: 'Productivity', desc: 'Auto-generate standup summaries from work logs', bestFor: 'Sprint standups, weekly reports',
+    content: `---\nname: weekly-standup-generator\ndescription: Generate standup summaries from work logs, commits, or task lists. Use to prepare for standup meetings.\nmetadata:\n  difficulty: beginner\n---\n# Weekly Standup Generator\n\n## Process\n1. Review recent work activity (commits, tasks, notes)\n2. Categorize into completed, in-progress, and blocked items\n3. Highlight key achievements\n4. Identify blockers and dependencies\n\n## Output Format\n### Done\n- Completed items this period\n\n### In Progress\n- Current work items with status\n\n### Blocked\n- Items needing help or waiting on others\n\n### Next\n- Planned items for next period\n` },
+  { id: 'blank', icon: '📄', name: 'Blank (Advanced)', category: 'Meta', desc: 'Empty template with frontmatter only', bestFor: 'Custom skills, advanced users',
     content: `---\nname: my-skill\ndescription: Describe what this skill does and when to use it.\n---\n# My Skill\n\nAdd your instructions here.\n` },
 ];
 
@@ -1516,6 +1520,15 @@ function renderSkillCard(skill) {
   const iconDiv = el('div', { className: 'card-icon', textContent: (skill.frontmatter.name || skill.dirName).charAt(0).toUpperCase() });
   const titleDiv = el('div');
   titleDiv.appendChild(el('div', { className: 'card-title', textContent: skill.frontmatter.name || skill.dirName }));
+  const diff = skill.frontmatter.metadata?.difficulty;
+  if (diff) {
+    const diffColors = { beginner: '#22c55e', intermediate: '#f59e0b', advanced: '#ef4444' };
+    const badge = el('span', { textContent: diff.toUpperCase(),
+      style: { fontSize: '10px', padding: '1px 6px', borderRadius: '3px', fontWeight: '600', letterSpacing: '.5px', textTransform: 'uppercase', color: '#fff', background: diffColors[diff] || 'var(--text-muted)', marginLeft: '6px', display: 'inline-block' }
+    });
+    titleDiv.firstChild.appendChild(document.createTextNode(' '));
+    titleDiv.firstChild.appendChild(badge);
+  }
   header.append(iconDiv, titleDiv);
   card.appendChild(header);
 
@@ -2206,7 +2219,7 @@ function renderWizardStep1() {
       },
       onKeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); card.click(); } },
     });
-    card.innerHTML = `<div class="template-icon">${t.icon}</div><h4>${t.name}</h4><p>${t.desc}</p>`;
+    card.innerHTML = `<div class="template-icon">${t.icon}</div><h4>${t.name}</h4><p>${t.desc}</p>${t.bestFor ? `<p style="font-size:11px;color:var(--text-muted);margin-top:4px">Best for: ${t.bestFor}</p>` : ''}`;
     grid.appendChild(card);
   });
   wrap.appendChild(grid);
@@ -2271,6 +2284,20 @@ function renderWizardStep3() {
     onInput: (e) => { State.wizardData.compatibility = e.target.value; }
   }));
   wrap.appendChild(compGroup);
+
+  // Tags
+  const tagsGroup = el('div', { className: 'form-group' });
+  tagsGroup.appendChild(el('label', { className: 'form-label', textContent: 'Tags (optional, comma-separated)' }));
+  const tagDatalist = el('datalist', { id: 'sf-tag-suggestions' });
+  getAllTags().forEach(t => tagDatalist.appendChild(el('option', { value: t })));
+  tagsGroup.appendChild(tagDatalist);
+  tagsGroup.appendChild(el('input', { className: 'form-input', type: 'text', placeholder: 'e.g., code-review, testing, docs',
+    list: 'sf-tag-suggestions',
+    value: State.wizardData.tags || '',
+    onInput: (e) => { State.wizardData.tags = e.target.value; if (!State.wizardData.metadata) State.wizardData.metadata = {}; State.wizardData.metadata.tags = e.target.value.split(',').map(t => t.trim()).filter(Boolean); }
+  }));
+  tagsGroup.appendChild(el('div', { className: 'form-hint', textContent: 'Add tags to help organize and find this skill later' }));
+  wrap.appendChild(tagsGroup);
 
   // Allowed tools
   const toolsGroup = el('div', { className: 'form-group' });
@@ -2364,6 +2391,47 @@ function renderEditor() {
       updateEditorStatus(wrap);
     }
   } });
+  // Undo/Redo
+  State.editorHistory = [skill.rawContent];
+  State.editorHistoryIndex = 0;
+  let historyDebounce = null;
+  function pushHistory(val) {
+    clearTimeout(historyDebounce);
+    historyDebounce = setTimeout(() => {
+      if (State.editorHistory[State.editorHistoryIndex] === val) return;
+      State.editorHistory = State.editorHistory.slice(0, State.editorHistoryIndex + 1);
+      State.editorHistory.push(val);
+      if (State.editorHistory.length > 50) State.editorHistory.shift();
+      State.editorHistoryIndex = State.editorHistory.length - 1;
+      updateUndoRedoBtns();
+    }, 500);
+  }
+  function editorUndo() {
+    if (State.editorHistoryIndex <= 0) return;
+    State.editorHistoryIndex--;
+    const ta = wrap.querySelector('textarea.code-editor');
+    if (ta) { ta.value = State.editorHistory[State.editorHistoryIndex]; State.editorDirty = true; updateEditorStatus(wrap); updatePreview(wrap); if (typeof updateLineNumbers === 'function') updateLineNumbers(); }
+    updateUndoRedoBtns();
+  }
+  function editorRedo() {
+    if (State.editorHistoryIndex >= State.editorHistory.length - 1) return;
+    State.editorHistoryIndex++;
+    const ta = wrap.querySelector('textarea.code-editor');
+    if (ta) { ta.value = State.editorHistory[State.editorHistoryIndex]; State.editorDirty = true; updateEditorStatus(wrap); updatePreview(wrap); if (typeof updateLineNumbers === 'function') updateLineNumbers(); }
+    updateUndoRedoBtns();
+  }
+  const undoBtn = el('button', { className: 'btn btn-ghost btn-sm', title: 'Undo (Ctrl+Z)', onClick: editorUndo });
+  undoBtn.textContent = 'Undo';
+  const redoBtn = el('button', { className: 'btn btn-ghost btn-sm', title: 'Redo (Ctrl+Shift+Z)', onClick: editorRedo });
+  redoBtn.textContent = 'Redo';
+  function updateUndoRedoBtns() {
+    undoBtn.disabled = State.editorHistoryIndex <= 0;
+    redoBtn.disabled = State.editorHistoryIndex >= State.editorHistory.length - 1;
+    undoBtn.style.opacity = undoBtn.disabled ? '0.4' : '1';
+    redoBtn.style.opacity = redoBtn.disabled ? '0.4' : '1';
+  }
+  updateUndoRedoBtns();
+
   const saveBtn = el('button', { className: 'btn btn-primary btn-sm', onClick: async () => {
     const ta = wrap.querySelector('textarea.code-editor');
     if (ta) await saveSkillContent(skill, ta.value);
@@ -2373,7 +2441,7 @@ function renderEditor() {
   saveBtn.innerHTML = `${icon('check', 14)} Save`;
   const backBtn = el('button', { className: 'btn btn-ghost btn-sm', onClick: () => { if (State.editorDirty && !confirm('You have unsaved changes. Discard and go back to Library?')) return; State.editorDirty = false; State.view = 'dashboard'; render(); } });
   backBtn.textContent = 'Back to Library';
-  toolbar.append(backBtn, insertFm, insertCode, saveBtn);
+  toolbar.append(backBtn, insertFm, insertCode, undoBtn, redoBtn, saveBtn);
   wrap.appendChild(toolbar);
 
   // Editor + Preview
@@ -2384,9 +2452,9 @@ function renderEditor() {
   leftPane.appendChild(el('div', { className: 'editor-pane-header', textContent: 'Source' }));
   const textarea = el('textarea', { className: 'code-editor',
     value: skill.rawContent,
-    spellcheck: 'false',
+    spellcheck: 'true',
     'aria-label': 'Skill source editor',
-    onInput: () => { State.editorDirty = true; updateEditorStatus(wrap); updatePreview(wrap); },
+    onInput: () => { State.editorDirty = true; updateEditorStatus(wrap); updatePreview(wrap); updateLineNumbers(); pushHistory(textarea.value); },
     onKeydown: (e) => {
       // Tab support
       if (e.key === 'Tab') {
@@ -2400,9 +2468,30 @@ function renderEditor() {
         e.preventDefault();
         saveBtn.click();
       }
+      // Undo: Ctrl+Z
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        editorUndo();
+      }
+      // Redo: Ctrl+Shift+Z or Ctrl+Y
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'Z' || (e.key === 'z' && e.shiftKey) || e.key === 'y')) {
+        e.preventDefault();
+        editorRedo();
+      }
     },
   });
-  leftPane.appendChild(textarea);
+
+  // Line numbers gutter
+  const lineNumDiv = el('div', { className: 'line-numbers' });
+  const editorWithLines = el('div', { className: 'editor-with-lines' });
+  function updateLineNumbers() {
+    const count = textarea.value.split('\n').length;
+    lineNumDiv.textContent = Array.from({ length: count }, (_, i) => i + 1).join('\n');
+  }
+  updateLineNumbers();
+  textarea.addEventListener('scroll', () => { lineNumDiv.scrollTop = textarea.scrollTop; });
+  editorWithLines.append(lineNumDiv, textarea);
+  leftPane.appendChild(editorWithLines);
   container.appendChild(leftPane);
 
   // Divider
@@ -3120,6 +3209,53 @@ function renderMcp() {
     endpointTable.appendChild(row);
   });
   wrap.appendChild(endpointTable);
+
+  // CLAUDE.md vs Skills guidance card (CA-03)
+  const guidanceCard = el('div', { style: { border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', marginBottom: '24px', background: 'var(--bg-card)', overflow: 'hidden' } });
+  const guidanceToggle = el('button', {
+    style: { width: '100%', display: 'flex', alignItems: 'center', gap: '10px', padding: '14px 18px', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-heading)', fontSize: '14px', fontWeight: '600', textAlign: 'left' },
+    onClick: () => {
+      const body = guidanceCard.querySelector('.guidance-body');
+      const chevron = guidanceToggle.querySelector('.guidance-chevron');
+      if (body.style.display === 'none') {
+        body.style.display = 'block';
+        chevron.style.transform = 'rotate(90deg)';
+      } else {
+        body.style.display = 'none';
+        chevron.style.transform = 'rotate(0deg)';
+      }
+    }
+  });
+  guidanceToggle.innerHTML = `<span style="font-size:18px">💡</span><span style="flex:1">When to use CLAUDE.md vs Skills</span><span class="guidance-chevron" style="transition:transform .2s;transform:rotate(0deg);color:var(--text-muted)">${ICONS.chevronRight}</span>`;
+  guidanceCard.appendChild(guidanceToggle);
+
+  const guidanceBody = el('div', { className: 'guidance-body', style: { display: 'none', padding: '0 18px 18px', fontSize: '13px', lineHeight: '1.7', color: 'var(--text)' } });
+  guidanceBody.innerHTML = `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:14px">
+      <div style="background:var(--bg-alt);border-radius:var(--radius);padding:14px">
+        <div style="font-weight:600;margin-bottom:8px;color:var(--text-heading)">📄 CLAUDE.md</div>
+        <ul style="padding-left:18px;margin:0;color:var(--text-muted)">
+          <li>Project-specific context that should always be available</li>
+          <li>Coding conventions, tech stack versions, project structure</li>
+          <li>Vercel research shows <strong style="color:var(--success)">100% success rate</strong> — agent reads it automatically</li>
+        </ul>
+      </div>
+      <div style="background:var(--bg-alt);border-radius:var(--radius);padding:14px">
+        <div style="font-weight:600;margin-bottom:8px;color:var(--text-heading)">⚡ Skills</div>
+        <ul style="padding-left:18px;margin:0;color:var(--text-muted)">
+          <li>Reusable instructions across multiple projects</li>
+          <li>Shareable with team members or the community</li>
+          <li>Modular capabilities (code review, docs, etc.)</li>
+          <li>Can be activated on-demand for specific tasks</li>
+        </ul>
+      </div>
+    </div>
+    <div style="background:var(--accent-light);border:1px solid var(--accent);border-radius:var(--radius);padding:10px 14px;font-size:12px;color:var(--accent)">
+      <strong>Pro tip:</strong> Use CLAUDE.md for project context, Skills for reusable workflows. Vercel's research found CLAUDE.md had a 100% success rate vs 56% without it.
+    </div>
+  `;
+  guidanceCard.appendChild(guidanceBody);
+  wrap.appendChild(guidanceCard);
 
   return wrap;
 }
