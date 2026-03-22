@@ -3,7 +3,7 @@
 [![CI](https://github.com/gtm-k/SkillForge/actions/workflows/ci.yml/badge.svg)](https://github.com/gtm-k/SkillForge/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Single File](https://img.shields.io/badge/Single_File-HTML-orange.svg)](#)
-[![Size](https://img.shields.io/badge/Size-~121_KB-green.svg)](#technical-details)
+[![Size](https://img.shields.io/badge/Size-~181_KB-green.svg)](#technical-details)
 [![Zero Dependencies](https://img.shields.io/badge/Dependencies-Zero-brightgreen.svg)](#technical-details)
 [![Chrome 120+](https://img.shields.io/badge/Chrome-120%2B-4285F4.svg?logo=googlechrome&logoColor=white)](#browser-compatibility)
 [![Edge 120+](https://img.shields.io/badge/Edge-120%2B-0078D7.svg?logo=microsoftedge&logoColor=white)](#browser-compatibility)
@@ -20,14 +20,14 @@ SkillForge is a self-contained HTML application that gives you a visual, intuiti
 - **Guided Wizard** — 5-step creation flow with templates, no YAML knowledge required
 - **Pro Editor** — Split-pane editor with raw source on the left and live preview on the right
 - **Validation Engine** — Real-time compliance checking against the agentskills.io specification
-- **Quality Scorer** — 5-dimension quality rating (0–100) for every skill
+- **Quality Scorer** — 6-dimension quality rating (0–100) for every skill
 - **Multi-Agent Support** — Works with Claude Code, OpenAI Codex, Cursor, GitHub Copilot, and more
 - **Export/Import** — ZIP export (single or all), import from URL
 - **Bulk Operations** — Multi-select skills for batch delete, export, or tag
 - **Version History** — Local snapshots saved on every edit, with one-click restore
 - **Collections** — Group skills into named collections for organization and export
 - **Cross-Agent Sync** — Open multiple folders to compare and copy skills between agents
-- **AI-Assisted Writing** — Bring your own API key (OpenAI or Anthropic) for AI suggestions
+- **MCP Server** — Generate a standalone Node.js MCP server for programmatic skill management
 - **Dark Mode** — Follows system preference with manual override (system/light/dark)
 - **10 Built-in Templates** — Code Reviewer, Documentation Writer, PR Description Writer, Research Synthesizer, Meeting Notes Formatter, Email Drafter, Data Analyst, Brand Voice Writer, Weekly Standup Generator, and Blank
 - **Fully Offline** — No network requests, no telemetry, no analytics
