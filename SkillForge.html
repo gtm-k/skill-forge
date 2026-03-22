@@ -646,6 +646,7 @@ const el = (tag, attrs, ...children) => {
     else if (k === 'textContent') e.textContent = v;
     else if (k.startsWith('on')) e.addEventListener(k.slice(2).toLowerCase(), v);
     else if (k === 'style' && typeof v === 'object') Object.assign(e.style, v);
+    else if (k === 'value') e.value = v;
     else e.setAttribute(k, v);
   });
   children.flat().forEach(c => { if (c) e.append(typeof c === 'string' ? document.createTextNode(c) : c); });
@@ -783,60 +784,116 @@ function scoreSkill(skill) {
   const fm = skill.frontmatter || {};
   const body = skill.body || '';
   const content = skill.rawContent || '';
+  const tokens = countTokens(content);
+  const lines = content.split('\n');
   const scores = {};
 
-  // Specificity (0-100): check for concrete instructions, examples, specific terms
-  let spec = 40;
-  if (body.length > 200) spec += 15;
-  if (/example|e\.g\.|for instance/i.test(body)) spec += 15;
-  if (/step \d|1\.|first|then|next|finally/i.test(body)) spec += 15;
-  if (/must|should|always|never/i.test(body)) spec += 15;
-  scores.specificity = Math.min(100, spec);
+  // 1. Structure (0-100)
+  let structure = 0;
+  if (/^---\s*\n[\s\S]*?\n---/m.test(content)) structure += 15;
+  if (fm.name) structure += 10;
+  if (fm.description && fm.description.length >= 20 && fm.description.length <= 200) structure += 10;
+  if (fm.version) structure += 5;
+  if (fm.metadata) structure += 5;
+  const h1s = (body.match(/^# [^\n]+/gm) || []);
+  const h2s = (body.match(/^## [^\n]+/gm) || []);
+  if (h1s.length > 0 || h2s.length > 0) structure += 15;
+  const h3s = (body.match(/^### [^\n]+/gm) || []);
+  if (h2s.length > 0 && h3s.length > 0) structure += 10;
+  const headingLevels = (body.match(/^(#{1,6}) /gm) || []).map(h => h.trim().length - 1);
+  let hierarchyOk = true;
+  for (let i = 1; i < headingLevels.length; i++) {
+    if (headingLevels[i] - headingLevels[i - 1] > 1) { hierarchyOk = false; break; }
+  }
+  if (headingLevels.length > 0 && hierarchyOk) structure += 10;
+  if (h2s.length >= 3) structure += 10;
+  if (fm.description && body.toLowerCase().includes(fm.description.toLowerCase().slice(0, 20))) structure += 10;
+  scores.structure = Math.min(100, structure);
 
-  // Scope (0-100): appropriate length, not too broad/narrow
-  const tokens = countTokens(content);
-  let scope = 50;
-  if (tokens > 100 && tokens < 4000) scope = 90;
-  else if (tokens > 50) scope = 70;
-  else if (tokens > 4000) scope = 60;
-  if (fm.name && fm.name.split('-').length >= 2) scope = Math.min(100, scope + 10);
-  scores.scope = Math.min(100, scope);
+  // 2. Instruction Quality (0-100)
+  let iq = 0;
+  if (/\b(do|always|never|ensure|use|avoid|set|run|execute|create|add|remove)\b/i.test(body)) iq += 15;
+  if (/\d+\.\s/m.test(body)) iq += 15;
+  if (/```[\s\S]*?```/m.test(body) || /`[^`]+`/.test(body)) iq += 15;
+  if (/\b(if|when|unless|otherwise|in case)\b/i.test(body)) iq += 10;
+  if (/\b(must|should|never|shall|required)\b/i.test(body)) iq += 10;
+  if (/output|format|template|response|return/i.test(body)) iq += 10;
+  if (/edge case|corner case|error|exception|fallback|otherwise/i.test(body)) iq += 10;
+  if (/^## (Process|Steps|Instructions|Workflow|Procedure)/im.test(body)) iq += 15;
+  scores.instructionQuality = Math.min(100, iq);
 
-  // Completeness (0-100)
+  // 3. Completeness (0-100)
   let comp = 0;
-  if (fm.name) comp += 20;
-  if (fm.description) comp += 20;
-  if (body.length > 50) comp += 20;
-  if (/## |### /m.test(body)) comp += 15;
-  if (/output|result|format|return/i.test(body)) comp += 15;
-  if (fm.license) comp += 5;
-  if (fm.metadata) comp += 5;
+  if (fm.name) comp += 10;
+  if (fm.description) comp += 10;
+  if (body.length > 100) comp += 10;
+  if (h2s.length >= 2) comp += 10;
+  if (/output|format|template/i.test(body)) comp += 15;
+  if (/process|workflow|steps|procedure/i.test(body)) comp += 15;
+  if (/error|edge case|fallback|exception/i.test(body)) comp += 10;
+  const compat = fm.metadata?.agent_compatibility || fm.agent_compatibility;
+  if (compat && Array.isArray(compat) && compat.length > 0) comp += 10;
+  if (fm.tags || fm.metadata?.tags) comp += 5;
+  if (fm.version) comp += 5;
   scores.completeness = Math.min(100, comp);
 
-  // Token Efficiency (0-100)
-  let eff = 80;
-  if (tokens > 5000) eff = 30;
-  else if (tokens > 4000) eff = 50;
-  else if (tokens > 3000) eff = 65;
-  else if (tokens < 50) eff = 40;
-  scores.tokenEfficiency = Math.min(100, eff);
+  // 4. Token Efficiency (0-100)
+  let eff;
+  if (tokens >= 50 && tokens <= 500) eff = 95;
+  else if (tokens > 500 && tokens <= 1500) eff = 90;
+  else if (tokens > 1500 && tokens <= 3000) eff = 75;
+  else if (tokens > 3000 && tokens <= 5000) eff = 50;
+  else if (tokens > 5000) eff = 30;
+  else eff = 35;
+  const phrases = {};
+  const words = body.toLowerCase().split(/\s+/);
+  for (let i = 0; i < words.length - 2; i++) {
+    const tri = words[i] + ' ' + words[i + 1] + ' ' + words[i + 2];
+    phrases[tri] = (phrases[tri] || 0) + 1;
+  }
+  if (Object.values(phrases).some(c => c >= 3)) eff -= 10;
+  const emptyLines = lines.filter(l => l.trim() === '').length;
+  if (lines.length > 0 && emptyLines / lines.length > 0.3) eff -= 10;
+  scores.tokenEfficiency = Math.max(0, Math.min(100, eff));
 
-  // Progressive Disclosure (0-100)
-  let pd = 50;
-  if (fm.description && fm.description.length > 20 && fm.description.length < 200) pd += 20;
-  if (skill.files && skill.files.length > 1) pd += 10;
-  // Bonus for organized subdirectories (scripts/, references/, assets/)
+  // 5. Reusability (0-100)
+  let reuse = 0;
+  if (/\{[a-zA-Z_]+\}/.test(body)) reuse += 15;
+  const agentSpecific = /\b(copilot|cursor|cline|aider|claude)[-_]specific\b/i.test(body);
+  if (!agentSpecific) reuse += 10;
+  if (/input|output|param|argument|contract/i.test(body) && /return|result|response|output/i.test(body)) reuse += 15;
+  const projectSpecific = /\b(our|my|this project|this repo|this codebase)\b/i.test(body);
+  if (!projectSpecific) reuse += 15;
   if (skill.files) {
     const hasDirs = skill.files.filter(f => f.kind === 'directory' && ['scripts', 'references', 'assets'].includes(f.name));
-    if (hasDirs.length >= 1) pd += 10;
-    if (hasDirs.length >= 2) pd += 10;
-    if (hasDirs.length >= 3) pd += 5;
+    if (hasDirs.length > 0) reuse += 15;
   }
-  if (tokens < 3000) pd += 10;
-  scores.progressiveDisclosure = Math.min(100, pd);
+  if (fm.name && /^[a-z0-9-]+$/.test(fm.name)) reuse += 10;
+  if (fm.description && /\b(when|trigger|use when|invoke when)\b/i.test(fm.description)) reuse += 10;
+  if (!projectSpecific && !agentSpecific) reuse += 10;
+  scores.reusability = Math.min(100, reuse);
+
+  // 6. Clarity (0-100)
+  let clarity = 0;
+  const paragraphs = body.split(/\n\n+/).filter(p => p.trim());
+  const avgSentences = paragraphs.length > 0
+    ? paragraphs.reduce((sum, p) => sum + (p.match(/[.!?]+/g) || []).length, 0) / paragraphs.length
+    : 0;
+  if (avgSentences < 3 || paragraphs.length === 0) clarity += 15;
+  if (/^[-*]\s/m.test(body) || /^\d+\.\s/m.test(body)) clarity += 15;
+  if (/```\w+\n/m.test(body)) clarity += 15;
+  if (/\*\*[^*]+\*\*/.test(body) || /_[^_]+_/.test(body)) clarity += 10;
+  const fmtPatterns = [/^#{1,6} /m, /^[-*] /m, /```/m, /\*\*/];
+  const fmtUsed = fmtPatterns.filter(p => p.test(body)).length;
+  if (fmtUsed >= 2) clarity += 10;
+  const ambiguous = /\b(maybe|possibly|might|could be|somehow|something like)\b/i.test(body);
+  if (!ambiguous) clarity += 10;
+  if (!/\[[^\]]*\]\([^)]*\s[^)]*\)/.test(body) && !/\*\*[^*]*$/.test(body)) clarity += 10;
+  if (h2s.length >= 2) clarity += 15;
+  scores.clarity = Math.min(100, clarity);
 
   scores.overall = Math.round(
-    (scores.specificity + scores.scope + scores.completeness + scores.tokenEfficiency + scores.progressiveDisclosure) / 5
+    (scores.structure + scores.instructionQuality + scores.completeness + scores.tokenEfficiency + scores.reusability + scores.clarity) / 6
   );
   return scores;
 }
@@ -1998,12 +2055,24 @@ function renderQualityPanel(skill) {
 
   // Dimensions
   const dims = el('div', { className: 'score-dimensions', style: { marginTop: '20px' } });
-  const dimNames = { specificity: 'Specificity', scope: 'Scope', completeness: 'Completeness', tokenEfficiency: 'Token Efficiency', progressiveDisclosure: 'Progressive Disclosure' };
-  for (const [key, label] of Object.entries(dimNames)) {
+  const dimConfig = {
+    structure: { label: 'Structure', tip: 'Add frontmatter with name/description, use organized headings (H1, H2, H3)' },
+    instructionQuality: { label: 'Instruction Quality', tip: 'Use imperative language, add numbered steps, include examples and constraints' },
+    completeness: { label: 'Completeness', tip: 'Add output format, process/workflow section, error handling, and metadata' },
+    tokenEfficiency: { label: 'Token Efficiency', tip: 'Aim for 50-1500 tokens, remove repetition and excessive whitespace' },
+    reusability: { label: 'Reusability', tip: 'Use placeholders like {project}, avoid project-specific references, define input/output' },
+    clarity: { label: 'Clarity', tip: 'Use short paragraphs, bullet points, code blocks with language tags, and bold key terms' }
+  };
+  for (const [key, cfg] of Object.entries(dimConfig)) {
     const val = scores[key];
-    const cls = val >= 70 ? 'high' : val >= 40 ? 'medium' : 'low';
+    const cls = val > 80 ? 'high' : val > 60 ? 'medium' : 'low';
     const row = el('div', { className: 'score-dim' });
-    row.innerHTML = `<span class="score-dim-label">${label}</span><div class="score-bar"><div class="score-bar-fill ${cls}" style="width:${val}%"></div></div><span class="score-value">${val}</span>`;
+    row.innerHTML = `<span class="score-dim-label">${esc(cfg.label)}</span><div class="score-bar"><div class="score-bar-fill ${cls}" style="width:${val}%"></div></div><span class="score-value">${val}</span>`;
+    if (val < 80) {
+      const tip = el('div', { className: 'score-tip', style: { fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px', marginBottom: '6px', paddingLeft: '4px' } });
+      tip.textContent = '\u{1F4A1} ' + cfg.tip;
+      row.appendChild(tip);
+    }
     dims.appendChild(row);
   }
   wrap.appendChild(dims);
