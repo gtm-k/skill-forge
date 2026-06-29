@@ -209,10 +209,11 @@ The plugin can't be a normal package — `@lmstudio/sdk` only exists *inside* a 
 ```bash
 # Prereq: install LM Studio's "RAG v1" plugin once — LM Studio → Discover → Plugins.
 node scripts/build-lmstudio-plugin.mjs        # → builds ~/.lmstudio-skillforge-plugin
-cd ~/.lmstudio-skillforge-plugin && lms dev   # builds + registers; leave it running (the one manual step)
+cd ~/.lmstudio-skillforge-plugin
+lms dev --install --yes                       # persistent one-shot install (no watch). Or `lms dev` to iterate.
 ```
 
-> **What you should see:** `[esbuild] build finished …` then `[PromptPreprocessor] Register with LM Studio`. The plugin now appears (enabled) in LM Studio's **Plugins** panel.
+> **What you should see:** `Successfully installed skillforge-local/skillforge-lmstudio`. The plugin appears (enabled) in LM Studio's **Plugins** panel — nothing left running. (Restart LM Studio once if it doesn't show up.)
 
 Then add a skill into the home LM Studio reads (it does **not** inherit a shell's `SKILLFORGE_HOME`, so leave it unset) and chat:
 

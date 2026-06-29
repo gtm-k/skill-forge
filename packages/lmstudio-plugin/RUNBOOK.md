@@ -26,11 +26,18 @@ glue + headless runtime, vendors `@skillforge/core`/`@skillforge/contracts` unde
 ```bash
 # Prereq: install LM Studio's "RAG v1" plugin once (LM Studio → Discover → Plugins).
 node scripts/build-lmstudio-plugin.mjs          # → ~/.lmstudio-skillforge-plugin (override with a destDir arg)
-cd ~/.lmstudio-skillforge-plugin && lms dev      # builds + registers; leave running. (NOT `lms create` — interactive-only)
+cd ~/.lmstudio-skillforge-plugin
+
+# Recommended — PERSISTENT one-shot install (no watch; survives across LM Studio restarts):
+lms dev --install --yes                          # → "Successfully installed skillforge-local/skillforge-lmstudio", exits
+#   …or, to iterate on the plugin code, run the dev watch instead (registers while it runs):
+#   lms dev                                       # → "[esbuild] build finished …" then "Register with LM Studio"
+# (NOT `lms create` — interactive-only.)
 ```
 
-`lms dev` should print `[esbuild] build finished, watching for changes...` then
-`[PromptPreprocessor] Register with LM Studio`.
+After `lms dev --install`, the plugin lands under `~/.lmstudio/extensions/plugins/skillforge-local/` with a
+bundled `.lmstudio/production.js`, and appears (enabled) in LM Studio's **Plugins** panel — no process left
+running. (Restart LM Studio once if a freshly-installed plugin doesn't show up.)
 
 ### Two non-obvious gotchas the script encodes (read if you build by hand)
 
