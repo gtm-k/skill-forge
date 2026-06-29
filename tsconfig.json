@@ -1,0 +1,16 @@
+{
+  // The type GATE config (tsc --noEmit). The RUNTIME never compiles — it runs on Node 22
+  // type-stripping (--experimental-strip-types). This file exists only so CI + `node scripts/typecheck.mjs`
+  // can catch the class of defect type-stripping hides: a type-only import that resolves to nothing still
+  // RUNS (every line is erased), so the test suite is blind to it. tsc is the actor that observes it.
+  //
+  // typeRoots points at the isolated sidecar (scripts/typecheck/) that owns the only npm deps in the repo,
+  // because root `npm install` cannot resolve the packages' `workspace:*` deps. @skillforge/* resolve via
+  // node_modules/@skillforge/* (the scripts/link-workspace.mjs junctions) — run that first.
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "resolveJsonModule": true,
+    "typeRoots": ["./scripts/typecheck/node_modules/@types"]
+  },
+  "include": ["packages/*/src/**/*.ts", "packages/*/test/**/*.ts"]
+}

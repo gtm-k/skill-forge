@@ -1,191 +1,58 @@
-# skill-forge CI — Quality & Security Checks
-# Runs on: manual trigger (workflow_dispatch) and release tags only.
-# Does NOT run on every push or PR to conserve CI minutes.
+name: ci
 
-name: CI
-
+# CI runs on push to master and on PRs; workflow_dispatch retained for manual runs.
 on:
-  workflow_dispatch:
-    inputs:
-      reason:
-        description: 'Reason for running CI'
-        required: false
-        default: 'Manual trigger'
+  workflow_dispatch: {}
   push:
-    tags:
-      - 'v*'
-
-permissions:
-  contents: read
+    branches: [master]
+  pull_request:
 
 jobs:
-  quality:
-    name: Quality Checks
+  test:
+    name: test (node 22, zero-install)
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Node.js
+      - name: Set up Node.js 22
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: "22"
 
-      # --- JavaScript Syntax Validation ---
-      - name: JS Syntax Check
-        run: |
-          echo "::group::Extracting JS from skill-forge.html"
-          sed -n '/<script>/,/<\/script>/p' skill-forge.html | sed '1d;$d' > /tmp/skillforge.js
-          echo "::endgroup::"
-          echo "::group::Running Node.js syntax check"
-          node --check /tmp/skillforge.js
-          echo "✅ JavaScript syntax is valid"
-          echo "::endgroup::"
+      # Zero-install workspace resolution: junction/symlink packages/* into node_modules/@skillforge/*.
+      # No `npm install` and no build step — the runtime is Node 22 native TypeScript type-stripping.
+      - name: Link workspace
+        run: node scripts/link-workspace.mjs
 
-      # --- HTML Structure Validation ---
-      - name: HTML Structure Check
-        run: |
-          echo "::group::Validating HTML structure"
-          # Check for required elements
-          grep -q '<!DOCTYPE html>' skill-forge.html || { echo "❌ Missing DOCTYPE"; exit 1; }
-          grep -q '<html lang=' skill-forge.html || { echo "❌ Missing html lang attribute"; exit 1; }
-          grep -q '<meta charset=' skill-forge.html || { echo "❌ Missing charset meta"; exit 1; }
-          grep -q '<meta name="viewport"' skill-forge.html || { echo "❌ Missing viewport meta"; exit 1; }
-          grep -q '</html>' skill-forge.html || { echo "❌ Missing closing html tag"; exit 1; }
+      # STRUCTURAL LINT (§2 / D24): @skillforge/core's leverage point stays child_process-free — the only
+      # core module allowed to import node:child_process is core/src/exec (the audited spawn chokepoint).
+      # This guards the invariant "our execution is never silent": every other spawn is an injected edge
+      # capability (CloneFn / RegistryResolveFn) living in an adapter, never hidden inside pure core.
+      - name: Lint — core stays child_process-free (outside exec)
+        run: node scripts/lint-core-no-child-process.mjs
 
-          # Verify it's a single-file app (no external script/link tags)
-          EXTERNAL_SCRIPTS=$(grep -cE '<script[^>]+src=' skill-forge.html || true)
-          if [ "$EXTERNAL_SCRIPTS" -gt 0 ]; then
-            echo "❌ Found external script tags — app must be self-contained"
-            exit 1
-          fi
-          EXTERNAL_LINKS=$(grep -cE '<link[^>]+href=.*\.css' skill-forge.html || true)
-          if [ "$EXTERNAL_LINKS" -gt 0 ]; then
-            echo "❌ Found external CSS links — app must be self-contained"
-            exit 1
-          fi
+      # LEGAL LINT (fixtures attribution gate): the public Apache-2.0 repo must never ship a fixture skill whose
+      # frontmatter license is "Proprietary" (e.g. Anthropic's docx/pdf/pptx/xlsx — redistribution forbidden) or
+      # points at a LICENSE.txt that ships nowhere. The real terms live in /THIRD_PARTY_LICENSES.md (+ NOTICE /
+      # ATTRIBUTIONS.md). This guard fails CI the moment such a fixture is reintroduced.
+      - name: Lint — fixtures carry no proprietary/dangling license
+        run: node scripts/lint-no-proprietary-fixtures.mjs
 
-          echo "✅ HTML structure is valid and self-contained"
-          echo "::endgroup::"
+      # TYPE GATE (tsc --noEmit): the runtime never compiles (Node 22 type-stripping), so type-only
+      # defects — an import that resolves to nothing, a structurally-wrong shape — RUN fine and the test
+      # suite can't see them. tsc is the actor that observes that class. The TS deps live in an isolated
+      # sidecar (scripts/typecheck/) because root `npm install` can't resolve the packages' `workspace:*`;
+      # scripts/typecheck.mjs bootstraps it (npm ci from the committed lockfile) + the junctions, then runs tsc.
+      - name: Type check (tsc --noEmit, src + tests)
+        run: node scripts/typecheck.mjs
 
-      # --- File Size Budget (PRD: < 500 KB) ---
-      - name: File Size Budget
-        run: |
-          MAX_KB=500
-          SIZE_BYTES=$(stat --format=%s skill-forge.html)
-          SIZE_KB=$((SIZE_BYTES / 1024))
-          echo "skill-forge.html: ${SIZE_KB} KB (budget: ${MAX_KB} KB)"
-          if [ "$SIZE_KB" -gt "$MAX_KB" ]; then
-            echo "❌ File size ${SIZE_KB} KB exceeds ${MAX_KB} KB budget"
-            exit 1
-          fi
-          echo "✅ File size within budget"
-
-      # --- PII / Personal Email Scan ---
-      - name: PII Scan
-        run: |
-          echo "::group::Scanning for personal information"
-          # Check all tracked files for common PII patterns
-          # Add known personal email patterns to block here
-          FOUND=0
-          for pattern in "@gmail.com" "@yahoo.com" "@hotmail.com" "@outlook.com" "@icloud.com" "@kethineedi"; do
-            if grep -rn "$pattern" --include="*.html" --include="*.md" --include="*.py" --include="*.txt" --include="*.json" . 2>/dev/null | grep -v ".git/"; then
-              echo "❌ Found potential PII pattern: $pattern"
-              FOUND=1
-            fi
-          done
-          # Check git commit emails
-          COMMIT_EMAILS=$(git log --format='%ae' | sort -u)
-          echo "Commit emails found: $COMMIT_EMAILS"
-          for email in $COMMIT_EMAILS; do
-            case "$email" in
-              *@gmail.com|*@yahoo.com|*@hotmail.com|*@outlook.com|*@icloud.com|*@kethineedi*)
-                echo "❌ Personal email found in git history: $email"
-                FOUND=1
-                ;;
-            esac
-          done
-          if [ "$FOUND" -eq 1 ]; then
-            echo "❌ PII detected — review and remove before publishing"
-            exit 1
-          fi
-          echo "✅ No personal information found"
-          echo "::endgroup::"
-
-      # --- Security: Check for dangerous patterns ---
-      - name: Security Scan
-        run: |
-          echo "::group::Scanning for security anti-patterns"
-          ISSUES=0
-          # Check for eval() usage
-          if grep -n 'eval(' skill-forge.html | grep -v '// ' | grep -v '<!--'; then
-            echo "⚠️  eval() usage detected"
-            ISSUES=$((ISSUES + 1))
-          fi
-          # Check for innerHTML with unsanitized template literals from user input
-          # (informational — not all innerHTML is dangerous)
-          INNERHTML_COUNT=$(grep -c 'innerHTML' skill-forge.html || true)
-          echo "ℹ️  innerHTML usage count: ${INNERHTML_COUNT} (review for XSS vectors)"
-          # Check that javascript: protocol is blocked in link renderer
-          if grep -q "safeUrl" skill-forge.html; then
-            echo "✅ Link sanitizer (safeUrl) is present"
-          else
-            echo "❌ Missing link URL sanitizer"
-            ISSUES=$((ISSUES + 1))
-          fi
-          # Check for prototype pollution guards
-          if grep -q "DANGEROUS_KEYS" skill-forge.html; then
-            echo "✅ Prototype pollution guard (DANGEROUS_KEYS) is present"
-          else
-            echo "❌ Missing prototype pollution guard"
-            ISSUES=$((ISSUES + 1))
-          fi
-          # Check for HTTPS-only import
-          if grep -q "parsed.protocol !== 'https:'" skill-forge.html; then
-            echo "✅ HTTPS-only import validation is present"
-          else
-            echo "❌ Missing HTTPS-only import check"
-            ISSUES=$((ISSUES + 1))
-          fi
-          if [ "$ISSUES" -gt 0 ]; then
-            echo "❌ ${ISSUES} security issue(s) found"
-            exit 1
-          fi
-          echo "✅ Security checks passed"
-          echo "::endgroup::"
-
-      # --- Accessibility: ARIA & Semantic checks ---
-      - name: Accessibility Scan
-        run: |
-          echo "::group::Checking accessibility attributes"
-          # Count ARIA attributes
-          ARIA_COUNT=$(grep -co 'aria-' skill-forge.html || true)
-          ROLE_COUNT=$(grep -co 'role=' skill-forge.html || true)
-          echo "ARIA attributes: ${ARIA_COUNT}"
-          echo "role attributes: ${ROLE_COUNT}"
-          # Check for essential ARIA patterns
-          grep -q 'aria-label' skill-forge.html || { echo "❌ No aria-label found"; exit 1; }
-          grep -q 'aria-live' skill-forge.html || { echo "⚠️  No aria-live regions found"; }
-          grep -q 'role="dialog"' skill-forge.html || { echo "⚠️  No dialog roles found"; }
-          grep -q ':focus-visible' skill-forge.html || { echo "❌ No :focus-visible styles"; exit 1; }
-          echo "✅ Accessibility baseline met"
-          echo "::endgroup::"
-
-      # --- Build Summary ---
-      - name: Summary
-        run: |
-          SIZE_BYTES=$(stat --format=%s skill-forge.html)
-          SIZE_KB=$((SIZE_BYTES / 1024))
-          LINES=$(wc -l < skill-forge.html)
-          JS_LINES=$(sed -n '/<script>/,/<\/script>/p' skill-forge.html | wc -l)
-          CSS_LINES=$(sed -n '/<style>/,/<\/style>/p' skill-forge.html | wc -l)
-          echo "## skill-forge CI Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
-          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| File size | ${SIZE_KB} KB |" >> $GITHUB_STEP_SUMMARY
-          echo "| Total lines | ${LINES} |" >> $GITHUB_STEP_SUMMARY
-          echo "| JS lines | ${JS_LINES} |" >> $GITHUB_STEP_SUMMARY
-          echo "| CSS lines | ${CSS_LINES} |" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "All checks passed ✅" >> $GITHUB_STEP_SUMMARY
+      # The whole suite, including: the golden PARITY harness (core.select == plugin embedded path, D5);
+      # the DAEMON-path golden parity (daemon /route-test == plugin == core, incl. a partial-embedding case
+      # and the float32-vs-float64 ordering proof, §8); the crash-restart proof (DB rebuild + staleness, §5);
+      # and the negative-set false-fire ceiling. The semantic tier self-skips when LM Studio is absent (no
+      # embeddings endpoint in CI). The live LM Studio injection-behavior check is a LOCAL pre-release step
+      # with a pinned version (D18) — deliberately NOT a CI gate (no multi-GB model runs here).
+      # --experimental-sqlite is REQUIRED: the Phase-2 daemon store (node:sqlite) and its whole suite
+      # run under it (W1a+). --experimental-strip-types keeps the native-TS, zero-install runtime.
+      - name: Run test suite
+        run: node --experimental-strip-types --experimental-sqlite --test "packages/**/test/*.ts"

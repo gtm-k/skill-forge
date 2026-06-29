@@ -1,0 +1,10 @@
+{
+  "name": "@skillforge/lmstudio",
+  "version": "2.0.0-alpha.0",
+  "type": "module",
+  "private": true,
+  "dependencies": {
+    "@skillforge/core": "workspace:*",
+    "@skillforge/contracts": "workspace:*"
+  }
+}

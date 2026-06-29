@@ -1,2 +1,15 @@
-skill-forge-test.html
 node_modules/
+dist/
+*.log
+.DS_Store
+# local runtime state (never committed)
+.skillforge/
+
+# windows crash artifacts
+*.stackdump
+
+# claude code worktrees + session state
+.claude/
+
+# Local ensemble/Codex review staging (never committed to the OSS repo)
+.codex-review/

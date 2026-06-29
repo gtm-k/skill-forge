@@ -1,0 +1,11 @@
+{
+  "name": "@skillforge/ui",
+  "version": "2.0.0-alpha.0",
+  "type": "module",
+  "private": true,
+  "bin": { "skill-forge-ui": "./src/bin.ts" },
+  "dependencies": {
+    "@skillforge/core": "workspace:*",
+    "@skillforge/contracts": "workspace:*"
+  }
+}

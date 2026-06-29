@@ -1,0 +1,15 @@
+{
+  "name": "skill-forge",
+  "version": "2.0.0-alpha.0",
+  "private": true,
+  "type": "module",
+  "description": "Local-first skill runtime + visual manager: source agentskills.io skills and inject the right one at runtime into LM Studio, MCP hosts, and any OpenAI-compatible agent.",
+  "license": "Apache-2.0",
+  "engines": { "node": ">=22.18" },
+  "workspaces": ["packages/*"],
+  "scripts": {
+    "test": "node --experimental-strip-types --experimental-sqlite --test \"packages/**/test/*.ts\"",
+    "test:core": "node --experimental-strip-types --test packages/core/test/select.test.ts",
+    "typecheck": "node scripts/typecheck.mjs"
+  }
+}

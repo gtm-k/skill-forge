@@ -1,0 +1,16 @@
+{
+  "name": "@skillforge/proxy",
+  "version": "2.0.0-alpha.0",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "bin": {
+    "skillforge-proxy": "./src/bin.ts"
+  },
+  "dependencies": {
+    "@skillforge/core": "workspace:*",
+    "@skillforge/contracts": "workspace:*"
+  }
+}
