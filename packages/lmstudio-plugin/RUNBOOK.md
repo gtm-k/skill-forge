@@ -1,92 +1,81 @@
-# @skillforge/lmstudio — RUNBOOK (manual GUI build + validation)
+# @skillforge/lmstudio — RUNBOOK (build + GUI validation)
 
-This package is the **runtime half of the magic moment**: it reads the CLI-written
+This package is the **runtime half of the magic moment**: it reads the CLI/daemon-written
 `~/.skillforge/manifest.json` + `sources/` tree, routes the chat to the right skill, and rewrites the
 user's turn so LM Studio **persists** the injected skill instructions into the conversation.
 
-> Note: a daemon-backed read model also ships now (`@skillforge/daemon`, node:sqlite + REST/SSE on 127.0.0.1) as an alternative to the embedded `~/.skillforge/` read path described below.
+> A daemon-backed read model also ships (`@skillforge/daemon`, node:sqlite + REST/SSE on 127.0.0.1) as an
+> alternative source for the same `~/.skillforge/` read path the plugin consumes.
 
 The selection + injection logic (`src/select-inject.ts`, `src/read-model.ts`, `src/embed.ts`,
 `src/inject-log.ts`) is **fully headless and tested offline** (`test/select-inject.test.ts`). The only
-piece that cannot be exercised in this repo is the LM Studio SDK glue (`src/promptPreprocessor.ts`),
-because `@lmstudio/sdk` exists **only inside a built LM Studio plugin**. Wiring that glue into a real
-plugin and validating it in the GUI is a **manual step (A0-B / D23) — it cannot be automated.**
+pieces that cannot be exercised in this repo are the LM Studio SDK glue (`src/index.ts`,
+`src/promptPreprocessor.ts`), because `@lmstudio/sdk` exists **only inside a built LM Studio plugin**. They
+are type-checked against an ambient SDK stub (`src/lmstudio-sdk.d.ts`) that models the **real** SDK shapes;
+the only thing left for a human is sending a GUI chat and eyeballing the persisted block (A0-B / D18 / D23).
 
 ---
 
-## Why this step is manual
+## Build it (one command)
 
-- `@lmstudio/sdk` is provided by the LM Studio plugin runtime, not by npm in this monorepo (house rule:
-  zero new dependencies). `src/promptPreprocessor.ts` carries `// @ts-nocheck` and is never imported by
-  tests for exactly this reason.
-- `lms create` is **interactive-only** (it prompts for a template + identity) and is therefore unusable
-  headlessly in CI. The supported path is to **clone an existing preprocessor plugin** and swap in our
-  hook, then build it with `lms dev`.
+`scripts/build-lmstudio-plugin.mjs` assembles a runnable plugin: it clones LM Studio's reference RAG-v1
+preprocessor (which provides the real `@lmstudio/sdk` + the `lms dev` build wiring), swaps in this package's
+glue + headless runtime, vendors `@skillforge/core`/`@skillforge/contracts` under `src/`, and generates a
+**complete** `imports` map for every vendored subpath.
 
----
+```bash
+# Prereq: install LM Studio's "RAG v1" plugin once (LM Studio → Discover → Plugins).
+node scripts/build-lmstudio-plugin.mjs          # → ~/.lmstudio-skillforge-plugin (override with a destDir arg)
+cd ~/.lmstudio-skillforge-plugin && lms dev      # builds + registers; leave running. (NOT `lms create` — interactive-only)
+```
 
-## Build steps (one-time, on a machine with LM Studio installed)
+`lms dev` should print `[esbuild] build finished, watching for changes...` then
+`[PromptPreprocessor] Register with LM Studio`.
 
-1. **Locate the reference plugin.** Install/locate the official `lmstudio/rag-v1` prompt-preprocessor
-   plugin (LM Studio › Discover › Plugins, or its source repo). It is the reference for the exact
-   `preprocess(...)` signature your installed SDK version expects.
+### Two non-obvious gotchas the script encodes (read if you build by hand)
 
-2. **Copy it to a new plugin folder**, e.g. `skillforge-lmstudio/`. Keep its `package.json`,
-   `manifest.json`, and SDK wiring; you are only replacing the preprocessor body.
-
-3. **Swap in our hook.** Replace the clone's `src/promptPreprocessor.ts` with this package's
-   `src/promptPreprocessor.ts`. Then **adapt the imports/accessors** to the installed SDK shape:
-   - `import { ... } from "@lmstudio/sdk"` — match the real exported controller/message type names.
-   - Replace the relative `./select-inject.ts` import with the headless core. Two options:
-     - vendor the four headless files (`select-inject.ts`, `read-model.ts`, `embed.ts`,
-       `inject-log.ts`) into the plugin's `src/`, **or**
-     - publish/`npm link` `@skillforge/lmstudio` and import `selectAndInject` from it.
-   - Adapt `ctl.pullHistory()`, `ctl.getConversationId()`, `userMessage.getText()`,
-     `m.getRole()/m.getText()` to the SDK's actual method names (the rag-v1 source shows the canonical
-     ones for your version).
-
-4. **Set a unique plugin identity.** In the clone's `manifest.json`, give it a distinct
-   `owner/name` (e.g. `you/skillforge-lmstudio`) so it does not collide with `lmstudio/rag-v1`.
-
-5. **Build + register with `lms dev`.** From the plugin folder run `lms dev`. This builds the plugin
-   (bundling `@lmstudio/sdk`) and registers it with the running LM Studio instance. Do **not** use
-   `lms create` (interactive-only). Leave `lms dev` running while you validate.
+1. **The real SDK's `pullHistory()` returns a `Chat`, not an array** — read the turns via
+   `chat.getMessagesArray()`. (An earlier stub typed it as `ChatMessage[]`, so `history.map(...)`
+   type-checked but threw at runtime → the plugin never injected. `src/lmstudio-sdk.d.ts` now reflects
+   reality, and SDK 1.5.0 exposes **no conversation id** to a preprocessor, so the sticky guard is a single
+   process-global slot.)
+2. **Vendored `.ts` deps must live under `src/`, not `node_modules/`** — LM Studio's dev runner refuses to
+   type-strip `.ts` files under `node_modules` (`ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING`). The script
+   vendors core/contracts to `src/vendor/**` and rewrites `@skillforge/*` → `#skillforge/*` subpath imports.
 
 ---
 
-## Validate in the LM Studio GUI
+## Validate in the LM Studio GUI (the one manual step)
 
-1. **Add a skill via the CLI:** `skill-forge add <git-url-or-folder>`. Confirm
-   `~/.skillforge/manifest.json` lists it and `~/.skillforge/sources/<sourceId>/<dir>/SKILL.md` exists.
-   (If LM Studio's embeddings endpoint is reachable the CLI stores vectors; if not, routing still works
-   on lexical + explicit — A0-A.)
+1. **Add a skill into the home LM Studio reads.** LM Studio is a separate GUI app and does **not** inherit a
+   shell's `SKILLFORGE_HOME` export — it reads `~/.skillforge`. So add with `SKILLFORGE_HOME` unset:
+   ```bash
+   SKILLFORGE_HOME= node --experimental-strip-types packages/cli/src/bin.ts add <git-url-or-folder>
+   ```
+   Confirm `~/.skillforge/manifest.json` lists it (`enabledFor.lmstudio: true`) and
+   `~/.skillforge/sources/<sourceId>/<dir>/SKILL.md` exists. (If a daemon is running against `~/.skillforge`,
+   stop it first so it doesn't rewrite that manifest.)
 
-2. **Open a GUI chat** in LM Studio with the plugin enabled, and send a message that clearly matches the
-   added skill (or use an explicit `$slug`).
+2. **Open a GUI chat** with the plugin enabled and send a message that clearly matches the skill (or an
+   explicit `$slug`).
 
-3. **Confirm the injection persisted.** The matching skill's instructions should appear **prepended to
-   your user turn** in the saved transcript (channel = user-turn-rewrite), as
-   `<skill block>\n\n<your message>`. Scroll back: the block stays in the conversation across turns, and
-   it is **not** re-injected every turn (sticky guard, R1-B1).
+3. **Confirm the injection persisted.** The skill's instructions appear **prepended to your user turn**
+   (`<skill block>\n\n<your message>`), and **stay** across turns (sticky guard, not re-injected every turn).
 
-4. **Check the byte-proof.** Open `~/.skillforge/inject.log.jsonl`; the last line records the turn:
-   `slug`, `disclosure` (`full`/`menu`/`none`), `tier` (`explicit`/`lexical`/`semantic`/`none`),
-   `injectedBytes` and `injectedLen`. Confirm `injectedBytes` equals the byte length of the block that
-   landed in the transcript — this is the D11 self-verifying hand-off: **"fired" is proven by injected
-   bytes, not by the selection decision.**
+4. **Byte-proof.** `tail -n 1 ~/.skillforge/inject.log.jsonl` records `slug`, `disclosure`
+   (`full`/`menu`/`none`), `tier`, `injectedBytes`, `injectedLen`. `injectedBytes` equals the bytes that
+   landed — the D11 self-verifying hand-off: **"fired" is proven by injected bytes, not by the decision.**
 
-5. **Negative + ambiguous checks.** A query that matches nothing should leave your turn untouched and log
-   a line with `slug: null`. A genuinely ambiguous query (two close matches) should inject a short
-   **menu** (`disclosure: "menu"`) rather than guessing a sticky wrong skill.
+5. **Negative + ambiguous.** A no-match leaves your turn untouched and logs `slug: null`. A genuinely
+   ambiguous query injects a short **menu** (`disclosure: "menu"`) rather than guessing a sticky wrong skill.
 
-### Injection-size ceiling to watch
+### Injection-size ceiling
 
-Spike A0 measured that a **multi-KB** instruction block is honored by the user-turn rewrite, so the
-default `maxTokens: 2000` budget lands intact. `buildInjection` GUARANTEES `tokenCost <= maxTokens` and
-**downgrades** an over-budget full body to a menu (or to `none`) rather than handing a sticky channel an
-over-budget block. If you raise the budget for a larger-context model, re-validate that the full block
-still persists in the GUI transcript and is reflected by `injectedBytes` in the log.
+`buildInjection` GUARANTEES `tokenCost <= maxTokens` (default 2000) and **downgrades** an over-budget full
+body to a menu (or `none`) rather than handing the sticky channel an over-budget block. If you raise the
+budget for a larger-context model, re-validate that the full block still persists in the transcript and is
+reflected by `injectedBytes`.
 
-> This GUI build + validation step is inherently manual — there is no headless API to drive the LM Studio
-> chat UI or to register a plugin non-interactively beyond `lms dev`. Treat the headless test suite as the
-> automated contract and this RUNBOOK as the human acceptance gate.
+> This GUI validation is inherently manual — there is no headless API to drive the LM Studio chat UI or to
+> register a plugin beyond `lms dev`. Treat the headless suite as the automated contract and this RUNBOOK as
+> the human acceptance gate.

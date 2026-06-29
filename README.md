@@ -190,6 +190,65 @@ The three inject targets — the LM Studio plugin (`packages/lmstudio-plugin/RUN
 
 ---
 
+## Installation — wiring up the inject targets
+
+Source your skills once (`skill-forge add …`, above), then turn on whichever targets you use. Each embeds the same core, so routing is identical across all three.
+
+```mermaid
+flowchart LR
+    H["~/.skillforge<br/>(skills + manifest)"] --> T1 & T2 & T3
+    T1["① LM Studio plugin<br/><i>one-time build + lms dev</i>"]
+    T2["② MCP server<br/><i>point your host at it</i>"]
+    T3["③ OpenAI proxy<br/><i>point your client's base URL at it</i>"]
+```
+
+### ① LM Studio plugin (GUI chats)
+
+The plugin can't be a normal package — `@lmstudio/sdk` only exists *inside* a built LM Studio plugin. So it's assembled once from LM Studio's reference RAG-v1 plugin with SkillForge swapped in. A script does the whole assembly:
+
+```bash
+# Prereq: install LM Studio's "RAG v1" plugin once — LM Studio → Discover → Plugins.
+node scripts/build-lmstudio-plugin.mjs        # → builds ~/.lmstudio-skillforge-plugin
+cd ~/.lmstudio-skillforge-plugin && lms dev   # builds + registers; leave it running (the one manual step)
+```
+
+> **What you should see:** `[esbuild] build finished …` then `[PromptPreprocessor] Register with LM Studio`. The plugin now appears (enabled) in LM Studio's **Plugins** panel.
+
+Then add a skill into the home LM Studio reads (it does **not** inherit a shell's `SKILLFORGE_HOME`, so leave it unset) and chat:
+
+```bash
+SKILLFORGE_HOME= node --experimental-strip-types packages/cli/src/bin.ts add <git-url|folder>
+```
+
+In a GUI chat, send a message matching the skill (or an explicit `$slug`). **What you should see:** the skill's instructions **prepended to your turn and persisted** in the transcript; `tail -n 1 ~/.skillforge/inject.log.jsonl` shows an `injectedBytes` equal to the block that landed. Full walkthrough + the size-ceiling notes: [`packages/lmstudio-plugin/RUNBOOK.md`](packages/lmstudio-plugin/RUNBOOK.md).
+
+### ② MCP server (Claude Desktop, Cursor, any MCP host)
+
+Point your host at the stdio server (skills you've added become `list_skills` / `load_skill` / `run_skill_script` tools — the host picks):
+
+```jsonc
+// e.g. Claude Desktop / Cursor MCP config
+{ "mcpServers": { "skillforge": {
+    "command": "node",
+    "args": ["--experimental-strip-types", "<repo>/packages/mcp-server/src/bin.ts"]
+} } }
+```
+
+> **What you should see:** the three SkillForge tools in your host; a `run_skill_script` with no exec grant returns a **named, audited** `no-grant` refusal (default-deny). The daemon also mounts MCP over HTTP at `POST /127.0.0.1:4319/mcp`.
+
+### ③ OpenAI-compatible proxy (Ollama, llama.cpp, vLLM, any OpenAI-compat client)
+
+Run the proxy (set your model server as the upstream) and point your client's base URL at it:
+
+```bash
+SKILLFORGE_PROXY_PORT=4320 node --experimental-strip-types packages/proxy/src/bin.ts
+# then use base URL  http://127.0.0.1:4320/v1  in any OpenAI-compatible client
+```
+
+> **What you should see:** chat responses carry `x-skill-injected` / `x-skill-disclosure` / `x-skill-tier` headers (the ephemeral injection is proof-in-headers). The daemon also serves `/v1/*` on `:4319`.
+
+---
+
 ## Dev (zero-install)
 
 Runs on **Node ≥ 22.18** via native TypeScript type-stripping — **no build step; the runtime has zero dependencies** (the only npm deps live in an isolated dev-only typecheck sidecar used by the `tsc` gate).
