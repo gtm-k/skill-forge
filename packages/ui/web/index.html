@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SkillForge — local skill runtime console</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="/web/styles.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+
+    <header class="app-header">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">◇</span>
+        <div class="brand-text">
+          <h1>SkillForge</h1>
+          <p class="tagline">local-first skill runtime &middot; visual manager</p>
+        </div>
+      </div>
+      <div class="header-right">
+        <dl class="header-stats" aria-label="runtime summary">
+          <div><dt>skills</dt><dd id="stat-skills">—</dd></div>
+          <div><dt>flagged</dt><dd id="stat-flagged">—</dd></div>
+          <div><dt>sources</dt><dd id="stat-sources">—</dd></div>
+        </dl>
+        <p id="conn" class="conn conn-unknown" role="status" aria-live="polite" title="daemon connection">
+          <span class="conn-dot" aria-hidden="true">●</span><span id="conn-label">connecting…</span>
+        </p>
+      </div>
+    </header>
+
+    <nav class="tabbar" aria-label="views">
+      <button class="tab" id="tab-skills" data-view="skills" aria-selected="true" type="button">Skills</button>
+      <button class="tab" id="tab-sources" data-view="sources" aria-selected="false" type="button">Sources</button>
+      <button class="tab" id="tab-route" data-view="route" aria-selected="false" type="button">Route / Test</button>
+      <button class="tab" id="tab-activity" data-view="activity" aria-selected="false" type="button">Activity</button>
+      <button class="tab" id="tab-status" data-view="status" aria-selected="false" type="button">Status</button>
+    </nav>
+
+    <main id="main">
+      <!-- ───────── Surface 2: Skills browser ───────── -->
+      <section id="view-skills" class="view" aria-labelledby="tab-skills">
+        <div class="toolbar">
+          <label class="search">
+            <span class="visually-hidden">Filter skills</span>
+            <input id="skill-search" type="search" placeholder="filter by name, description, source, capability…" autocomplete="off" />
+          </label>
+          <label class="toolbar-field">
+            <span class="visually-hidden">Target</span>
+            <select id="skill-target-filter" aria-label="filter by target">
+              <option value="">all targets</option>
+              <option value="lmstudio">LM Studio</option>
+              <option value="mcp">MCP</option>
+              <option value="proxy">Proxy</option>
+            </select>
+          </label>
+          <label class="toolbar-check"><input type="checkbox" id="skill-enabled-only" /> enabled only</label>
+          <label class="toolbar-check"><input type="checkbox" id="skill-flagged-only" /> flagged only</label>
+          <p class="result-count" id="skills-count" aria-live="polite"></p>
+        </div>
+        <div id="skill-grid" class="card-grid" aria-busy="true">
+          <p class="empty">Loading skills…</p>
+        </div>
+      </section>
+
+      <!-- ───────── Surface 1: Sources ───────── -->
+      <section id="view-sources" class="view" hidden aria-labelledby="tab-sources">
+        <form id="source-form" class="source-add">
+          <label class="source-input-wrap">
+            <span class="field-label">Add a source</span>
+            <input id="source-input" type="text" autocomplete="off"
+              placeholder="git URL · local folder path · registry id · .zip url — the daemon sniffs the kind" />
+          </label>
+          <div class="source-actions">
+            <button type="submit" class="secondary" id="source-preview-btn">Preview</button>
+            <button type="button" class="primary" id="source-commit-btn" disabled>Add source</button>
+          </div>
+        </form>
+        <div id="source-dropzone" class="dropzone" tabindex="0" role="button"
+          aria-label="Drop a folder or paste a path or URL to add a source">
+          <span class="dropzone-icon" aria-hidden="true">⤓</span>
+          <span>Drop a folder here, or paste a git URL / local path above</span>
+        </div>
+        <div id="source-preview" class="source-preview" aria-live="polite"></div>
+
+        <h2 class="section-h">Installed sources</h2>
+        <div id="sources-list" class="sources-list" aria-busy="true" aria-live="polite">
+          <p class="empty">Loading sources…</p>
+        </div>
+      </section>
+
+      <!-- ───────── Surface 4: Route / Test ───────── -->
+      <section id="view-route" class="view" hidden aria-labelledby="tab-route">
+        <form id="route-form" class="route-form">
+          <label class="route-utterance">
+            <span class="field-label">Utterance</span>
+            <textarea id="route-query" rows="2" placeholder="e.g. extract the tables and text from this pdf"></textarea>
+          </label>
+          <div class="route-controls">
+            <label class="route-field">
+              <span class="field-label">Target</span>
+              <select id="route-target">
+                <option value="lmstudio">LM Studio</option>
+                <option value="mcp">MCP</option>
+                <option value="proxy">Proxy</option>
+              </select>
+            </label>
+            <label class="route-field">
+              <span class="field-label">Explicit ($slug, optional)</span>
+              <input id="route-explicit" type="text" autocomplete="off" placeholder="force a skill" />
+            </label>
+            <button type="submit" class="primary" id="route-submit">Route</button>
+          </div>
+        </form>
+        <div id="route-result" class="route-result" aria-live="polite"></div>
+      </section>
+
+      <!-- ───────── Surface 5: Activity ───────── -->
+      <section id="view-activity" class="view" hidden aria-labelledby="tab-activity">
+        <div class="toolbar">
+          <label class="toolbar-field">
+            <span class="visually-hidden">Event type</span>
+            <select id="activity-type" aria-label="filter by event type">
+              <option value="">all events</option>
+              <option value="selection">selection</option>
+              <option value="injection">injection</option>
+              <option value="exec">exec</option>
+              <option value="source">source</option>
+              <option value="staleness">staleness</option>
+            </select>
+          </label>
+          <p id="activity-stream-state" class="stream-state" aria-live="polite"></p>
+          <button type="button" class="secondary" id="activity-pause">Pause</button>
+          <p class="result-count" id="activity-count" aria-live="polite"></p>
+        </div>
+        <div id="activity-list" class="activity-list" aria-busy="true" aria-live="polite">
+          <p class="empty">Loading activity…</p>
+        </div>
+      </section>
+
+      <!-- ───────── Surface 6: Status / Settings ───────── -->
+      <section id="view-status" class="view" hidden aria-labelledby="tab-status">
+        <div id="status-health" class="status-grid" aria-live="polite">
+          <p class="empty">Loading status…</p>
+        </div>
+        <h2 class="section-h">Settings</h2>
+        <div id="status-settings" class="settings" aria-live="polite">
+          <p class="empty">Loading settings…</p>
+        </div>
+      </section>
+    </main>
+
+    <!-- ───────── Surface 3: Inspect drawer ───────── -->
+    <div id="drawer-scrim" class="drawer-scrim" hidden></div>
+    <aside id="drawer" class="drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-title" hidden tabindex="-1">
+      <div class="drawer-head">
+        <div>
+          <h2 id="drawer-title">—</h2>
+          <p id="drawer-slug" class="mono dim"></p>
+        </div>
+        <button id="drawer-close" class="icon-btn" type="button" aria-label="Close inspector">✕</button>
+      </div>
+      <div id="drawer-prov" class="drawer-prov"></div>
+      <div class="drawer-tabs" role="tablist" aria-label="inspect">
+        <button class="drawer-tab" id="dt-overview" data-tab="overview" role="tab" aria-selected="true" aria-controls="drawer-body" type="button">Overview</button>
+        <button class="drawer-tab" id="dt-instructions" data-tab="instructions" role="tab" aria-selected="false" aria-controls="drawer-body" tabindex="-1" type="button">Instructions</button>
+        <button class="drawer-tab" id="dt-scripts" data-tab="scripts" role="tab" aria-selected="false" aria-controls="drawer-body" tabindex="-1" type="button">Files &amp; scripts</button>
+      </div>
+      <div id="drawer-body" class="drawer-body" role="tabpanel" tabindex="0" aria-labelledby="dt-overview"></div>
+      <div id="drawer-foot" class="drawer-foot"></div>
+    </aside>
+
+    <!-- transient success / error notices (never silent) -->
+    <div id="toasts" class="toasts" aria-live="assertive" aria-atomic="false"></div>
+
+    <script type="module" src="/web/app.js"></script>
+  </body>
+</html>

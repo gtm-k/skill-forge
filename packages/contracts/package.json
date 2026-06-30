@@ -1,0 +1,12 @@
+{
+  "name": "@skillforge/contracts",
+  "version": "2.0.0-alpha.0",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": "./src/schema.ts",
+    "./api": "./src/api.ts",
+    "./http-route": "./src/http-route.ts",
+    "./golden": "./fixtures/golden.json"
+  }
+}

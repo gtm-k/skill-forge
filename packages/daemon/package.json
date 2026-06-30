@@ -1,0 +1,15 @@
+{
+  "name": "@skillforge/daemon",
+  "version": "2.0.0-alpha.0",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@skillforge/core": "workspace:*",
+    "@skillforge/contracts": "workspace:*",
+    "@skillforge/mcp-server": "workspace:*",
+    "@skillforge/proxy": "workspace:*"
+  }
+}

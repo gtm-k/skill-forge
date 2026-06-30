@@ -1,0 +1,9 @@
+{
+  "name": "skillforge-typecheck",
+  "private": true,
+  "description": "Isolated dev/CI type-gate tooling. Kept OUT of the workspace on purpose: the runtime is zero-install (Node 22 type-stripping + the scripts/link-workspace.mjs junction linker), and the packages use pnpm's `workspace:*` protocol which `npm install` at the repo root cannot resolve. This sidecar owns the only npm deps in the repo (typescript + @types/node) so `tsc --noEmit` can run without disturbing that. See ../typecheck.mjs and ../../tsconfig.json.",
+  "devDependencies": {
+    "typescript": "5.7.3",
+    "@types/node": "22.10.5"
+  }
+}

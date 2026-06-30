@@ -1,21 +1,43 @@
-skill-forge: AI Agent Skill Manager
-Copyright 2026 skill-forge Contributors
+skill-forge
+Copyright 2025-2026 the skill-forge authors
 
-This product includes software developed by the skill-forge project
-(https://github.com/gtm-k/skill-forge).
+This product includes Agent Skills from Anthropic's skills repository
+(https://github.com/anthropics/skills), Copyright Anthropic, PBC, licensed
+under Apache-2.0. The following bundled fixture skills originate there:
 
-All contributors retain their respective copyrights.
+  - algorithmic-art
+  - brand-guidelines
+  - canvas-design
+  - claude-api
+  - doc-coauthoring
+  - frontend-design
+  - internal-comms
+  - mcp-builder
+  - skill-creator
+  - slack-gif-creator
+  - theme-factory
+  - web-artifacts-builder
+  - webapp-testing
 
-Licensed under the Apache License, Version 2.0.
+This product includes skills from the superpowers project
+(https://github.com/obra/superpowers), Copyright (c) 2025 Jesse Vincent,
+licensed under the MIT License. The following bundled fixture skills
+originate there:
 
-Embedded Components (all custom, no external dependencies):
-============================================================
+  - brainstorming
+  - dispatching-parallel-agents
+  - executing-plans
+  - finishing-a-development-branch
+  - receiving-code-review
+  - requesting-code-review
+  - subagent-driven-development
+  - systematic-debugging
+  - test-driven-development
+  - using-git-worktrees
+  - using-superpowers
+  - verification-before-completion
+  - writing-plans
+  - writing-skills
 
-1. Mini YAML Parser — Custom lightweight YAML frontmatter parser
-   Inspired by the YAML specification (https://yaml.org)
-
-2. Mini Markdown Renderer — Custom regex-based Markdown-to-HTML renderer
-
-3. Mini ZIP Builder — Custom ZIP file creation using store method (no compression)
-
-No third-party libraries are used. All code is original.
+Full license texts are reproduced in THIRD_PARTY_LICENSES.md. A per-skill
+provenance and license map is in ATTRIBUTIONS.md.
