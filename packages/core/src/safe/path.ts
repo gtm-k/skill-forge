@@ -73,6 +73,19 @@ export function resolveUnderRoot(root: string, candidate: string): string {
   const realRoot = realpathDeepestExisting(path.resolve(root));
   // path.resolve drops `realRoot` when `candidate` is absolute, and joins it when relative.
   const absCandidate = path.resolve(realRoot, candidate);
+  // LEXICAL containment FIRST (mirrors assertNoSymlinkEscape): if the lexically-resolved path already
+  // escapes realRoot, that is a PathEscapeError — and we must raise it BEFORE realpath'ing the candidate,
+  // because realpath of an escaping tail can fail with a NON-ENOENT code that realpathDeepestExisting
+  // (correctly) rethrows — e.g. ENOTDIR when a real FILE outside the root is used as a path component
+  // (`/etc/passwd/SKILL.md` on Linux). Without this pre-check that raw error MASKS the escape: the caller
+  // sees a generic error instead of PathEscapeError (win32 yields ENOENT here, which is tolerated, so the
+  // bug is Linux-only). The realpath check below still runs for the lexically-contained-but-symlink-
+  // escaping case (a path inside root that realpaths OUT via a symlink).
+  if (escapesRoot(path.relative(realRoot, absCandidate))) {
+    throw new PathEscapeError(
+      `path escapes root: ${JSON.stringify(candidate)} resolved to ${JSON.stringify(absCandidate)} outside ${JSON.stringify(realRoot)}`,
+    );
+  }
   const realCandidate = realpathDeepestExisting(absCandidate);
   const rel = path.relative(realRoot, realCandidate);
   if (escapesRoot(rel)) {
