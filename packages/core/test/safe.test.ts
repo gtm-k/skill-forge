@@ -61,6 +61,25 @@ test("resolveUnderRoot: allows an absolute path that is inside root", () => {
   assert.doesNotThrow(() => resolveUnderRoot(root, insideAbs));
 });
 
+test("resolveUnderRoot: an escaping path whose tail uses a FILE as a directory still throws PathEscapeError (the Linux ENOTDIR-masking regression)", () => {
+  // Put a real FILE just outside root, then reference it AS A DIRECTORY in an escaping path. On Linux,
+  // realpath() of such a tail fails with ENOTDIR; realpathDeepestExisting rightly rethrows non-ENOENT
+  // codes, so WITHOUT a lexical pre-check that raw ENOTDIR escapes resolveUnderRoot BEFORE the containment
+  // check and MASKS the escape (the caller sees a generic error, not PathEscapeError — which the UI handler
+  // then maps to 404 instead of 400). The lexical pre-check must catch the escape first. (On win32 the same
+  // realpath yields ENOENT, tolerated, so it resolved + escaped correctly there already — this reproduces
+  // only on Linux/CI; the guard pins the contract on both.)
+  const sibling = path.join(path.dirname(root), `skf-safe-file-${path.basename(root)}`);
+  fs.writeFileSync(sibling, "x");
+  outsideDirs.push(sibling); // cleaned up in after()
+  const candidate = `../${path.basename(sibling)}/child.txt`; // escapes root; uses the file as a dir
+  assert.throws(
+    () => resolveUnderRoot(root, candidate),
+    (e) => e instanceof PathEscapeError,
+    "an escaping path must throw PathEscapeError even when its realpath tail would fail with ENOTDIR",
+  );
+});
+
 test("assertNoSymlinkEscape: rejects a symlink pointing outside root", (t) => {
   const outsideTarget = fs.mkdtempSync(path.join(os.tmpdir(), "skf-safe-outside-"));
   outsideDirs.push(outsideTarget);
