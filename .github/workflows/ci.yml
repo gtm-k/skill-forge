@@ -1,10 +1,10 @@
 name: ci
 
-# CI runs on push to master and on PRs; workflow_dispatch retained for manual runs.
+# CI runs on push to main and on PRs; workflow_dispatch retained for manual runs.
 on:
   workflow_dispatch: {}
   push:
-    branches: [master]
+    branches: [main]
   pull_request:
 
 jobs:
@@ -54,5 +54,8 @@ jobs:
       # with a pinned version (D18) — deliberately NOT a CI gate (no multi-GB model runs here).
       # --experimental-sqlite is REQUIRED: the Phase-2 daemon store (node:sqlite) and its whole suite
       # run under it (W1a+). --experimental-strip-types keeps the native-TS, zero-install runtime.
+      # --test-concurrency=2 caps parallel test processes so the suite stays within the free-tier
+      # Ubuntu runner's memory (the daemon suite spawns node:sqlite processes; an unbounded fan-out can
+      # OOM a 2-core/7GB runner). Locally the same flag avoids a spawn-storm on memory-constrained boxes.
       - name: Run test suite
-        run: node --experimental-strip-types --experimental-sqlite --test "packages/**/test/*.ts"
+        run: node --experimental-strip-types --experimental-sqlite --test-concurrency=2 --test "packages/**/test/*.ts"
